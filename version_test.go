@@ -96,7 +96,7 @@ func TestMatchingRCWithGreaterThanEqual(t *testing.T) {
 func TestCaretConstraint(t *testing.T) {
 	constraint, _ := NewConstraint("^6.4.0")
 
-	if !constraint.Check(Must(NewVersion("6.3.0.0"))) {
+	if constraint.Check(Must(NewVersion("6.3.0.0"))) {
 		t.Errorf("Expected false, got true")
 	}
 	if !constraint.Check(Must(NewVersion("6.4.0.0"))) {
@@ -117,7 +117,7 @@ func TestCaretConstraint(t *testing.T) {
 	if !constraint.Check(Must(NewVersion("6.9.9.9"))) {
 		t.Errorf("Expected true, got false")
 	}
-	if !constraint.Check(Must(NewVersion("7.0.0"))) {
+	if constraint.Check(Must(NewVersion("7.0.0"))) {
 		t.Errorf("Expected false, got true")
 	}
 }
@@ -129,13 +129,13 @@ func TestVersionWithoutOperator(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
-	if !constraint.Check(Must(NewVersion("6.3.0.0"))) {
+	if constraint.Check(Must(NewVersion("6.3.0.0"))) {
 		t.Errorf("Expected false, got true")
 	}
 	if !constraint.Check(Must(NewVersion("6.4.0.0"))) {
 		t.Errorf("Expected true, got false")
 	}
-	if !constraint.Check(Must(NewVersion("6.5.0.0"))) {
+	if constraint.Check(Must(NewVersion("6.5.0.0"))) {
 		t.Errorf("Expected false, got true")
 	}
 }
