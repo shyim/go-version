@@ -3,8 +3,6 @@ package version
 import (
 	"sort"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestMatchingRCWithTilde(t *testing.T) {
@@ -46,7 +44,9 @@ func TestMatchingRCWithCaret(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "6.5.0.0-rc1", match)
+	if match != "6.5.0.0-rc1" {
+		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	}
 }
 
 func TestMatchingRCWithCaretThreeNumbers(t *testing.T) {
@@ -66,7 +66,9 @@ func TestMatchingRCWithCaretThreeNumbers(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "6.5.0.0-rc1", match)
+	if match != "6.5.0.0-rc1" {
+		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	}
 }
 
 func TestMatchingRCWithGreaterThanEqual(t *testing.T) {
@@ -86,30 +88,56 @@ func TestMatchingRCWithGreaterThanEqual(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "6.5.0.0-rc1", match)
+	if match != "6.5.0.0-rc1" {
+		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	}
 }
 
 func TestCaretConstraint(t *testing.T) {
 	constraint, _ := NewConstraint("^6.4.0")
 
-	assert.Equal(t, false, constraint.Check(Must(NewVersion("6.3.0.0"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.4.0.0"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.4.0.1"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.4.1.0"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.4.5.0"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.5.5.5"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.9.9.9"))))
-	assert.Equal(t, false, constraint.Check(Must(NewVersion("7.0.0"))))
+	if constraint.Check(Must(NewVersion("6.3.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	if !constraint.Check(Must(NewVersion("6.4.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !constraint.Check(Must(NewVersion("6.4.0.1"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !constraint.Check(Must(NewVersion("6.4.1.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !constraint.Check(Must(NewVersion("6.4.5.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !constraint.Check(Must(NewVersion("6.5.5.5"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !constraint.Check(Must(NewVersion("6.9.9.9"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if constraint.Check(Must(NewVersion("7.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
 }
 
 func TestVersionWithoutOperator(t *testing.T) {
 	constraint, err := NewConstraint("6.4.0.0")
 
-	assert.NoError(t, err)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	assert.Equal(t, false, constraint.Check(Must(NewVersion("6.3.0.0"))))
-	assert.Equal(t, true, constraint.Check(Must(NewVersion("6.4.0.0"))))
-	assert.Equal(t, false, constraint.Check(Must(NewVersion("6.5.0.0"))))
+	if constraint.Check(Must(NewVersion("6.3.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	if !constraint.Check(Must(NewVersion("6.4.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if constraint.Check(Must(NewVersion("6.5.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
 }
 
 func TestSortingVersions(t *testing.T) {
@@ -124,18 +152,32 @@ func TestSortingVersions(t *testing.T) {
 
 	sort.Sort(Collection(vs))
 
-	assert.Equal(t, "6.2.0", vs[0].String())
-	assert.Equal(t, "6.3.1.0", vs[1].String())
-	assert.Equal(t, "6.4.8.0", vs[2].String())
-	assert.Equal(t, "6.5.0.0-rc1", vs[3].String())
-	assert.Equal(t, "6.5.0.0-rc2", vs[4].String())
-	assert.Equal(t, "6.5.0.0", vs[5].String())
+	if vs[0].String() != "6.2.0" {
+		t.Errorf("Expected 6.2.0, got %s", vs[0].String())
+	}
+	if vs[1].String() != "6.3.1.0" {
+		t.Errorf("Expected 6.3.1.0, got %s", vs[1].String())
+	}
+	if vs[2].String() != "6.4.8.0" {
+		t.Errorf("Expected 6.4.8.0, got %s", vs[2].String())
+	}
+	if vs[3].String() != "6.5.0.0-rc1" {
+		t.Errorf("Expected 6.5.0.0-rc1, got %s", vs[3].String())
+	}
+	if vs[4].String() != "6.5.0.0-rc2" {
+		t.Errorf("Expected 6.5.0.0-rc2, got %s", vs[4].String())
+	}
+	if vs[5].String() != "6.5.0.0" {
+		t.Errorf("Expected 6.5.0.0, got %s", vs[5].String())
+	}
 }
 
 func TestVersionIncrease(t *testing.T) {
 	version := Must(NewVersion("1.2.3"))
 	version.Increase()
-	assert.Equal(t, "1.2.4", version.String())
+	if version.String() != "1.2.4" {
+		t.Errorf("Expected 1.2.4, got %s", version.String())
+	}
 }
 
 func TestVersionString(t *testing.T) {
