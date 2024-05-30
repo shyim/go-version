@@ -2,8 +2,6 @@ package version
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestConstraints(t *testing.T) {
@@ -14,37 +12,37 @@ func TestConstraints(t *testing.T) {
 
 func TestConstraintParsingWhitespaceAnd(t *testing.T) {
 	c, err := NewConstraint(">=1.0 <2.0")
-	assert.NoError(t, err)
+	if err != nil { t.Errorf("Expected no error, got %v", err) }
 
-	assert.Equal(t, ">=1.0,<2.0", c.String())
-	assert.True(t, c.Check(Must(NewVersion("1.0.0"))))
-	assert.False(t, c.Check(Must(NewVersion("2.0.0"))))
+	if c.String() != ">=1.0,<2.0" { t.Errorf("Expected '>=1.0,<2.0', got %s", c.String()) }
+	if !c.Check(Must(NewVersion("1.0.0"))) { t.Errorf("Expected true, got false") }
+	if c.Check(Must(NewVersion("2.0.0"))) { t.Errorf("Expected false, got true") }
 }
 
 func TestConstraintParsingWhitespaceAndOr(t *testing.T) {
 	c, err := NewConstraint("~6.4 >=6.4.20.0 || ~6.5")
-	assert.NoError(t, err)
+	if err != nil { t.Errorf("Expected no error, got %v", err) }
 
-	assert.Equal(t, "~6.4,>=6.4.20.0||~6.5", c.String())
-	assert.True(t, c.Check(Must(NewVersion("6.4.20"))))
-	assert.True(t, c.Check(Must(NewVersion("6.4.20.0"))))
-	assert.True(t, c.Check(Must(NewVersion("6.5.0"))))
-	assert.False(t, c.Check(Must(NewVersion("6.4.0.0"))))
+	if c.String() != "~6.4,>=6.4.20.0||~6.5" { t.Errorf("Expected '~6.4,>=6.4.20.0||~6.5', got %s", c.String()) }
+	if !c.Check(Must(NewVersion("6.4.20"))) { t.Errorf("Expected true, got false") }
+	if !c.Check(Must(NewVersion("6.4.20.0"))) { t.Errorf("Expected true, got false") }
+	if !c.Check(Must(NewVersion("6.5.0"))) { t.Errorf("Expected true, got false") }
+	if c.Check(Must(NewVersion("6.4.0.0"))) { t.Errorf("Expected false, got true") }
 }
 
 func TestConstraintWithoutWhitespace(t *testing.T) {
 	c, err := NewConstraint("<6.6.1.0||>=6.3.5.0")
-	assert.NoError(t, err)
+	if err != nil { t.Errorf("Expected no error, got %v", err) }
 
-	assert.Equal(t, "<6.6.1.0||>=6.3.5.0", c.String())
-	assert.True(t, c.Check(Must(NewVersion("6.4.0.0"))))
+	if c.String() != "<6.6.1.0||>=6.3.5.0" { t.Errorf("Expected '<6.6.1.0||>=6.3.5.0', got %s", c.String()) }
+	if !c.Check(Must(NewVersion("6.4.0.0"))) { t.Errorf("Expected true, got false") }
 }
 
 func TestConstraintVersionNumber(t *testing.T) {
 	c, err := NewConstraint("1.0.0")
-	assert.NoError(t, err)
+	if err != nil { t.Errorf("Expected no error, got %v", err) }
 
-	assert.Equal(t, "1.0.0", c.String())
-	assert.True(t, c.Check(Must(NewVersion("1.0.0"))))
-	assert.False(t, c.Check(Must(NewVersion("1.0.1"))))
+	if c.String() != "1.0.0" { t.Errorf("Expected '1.0.0', got %s", c.String()) }
+	if !c.Check(Must(NewVersion("1.0.0"))) { t.Errorf("Expected true, got false") }
+	if c.Check(Must(NewVersion("1.0.1"))) { t.Errorf("Expected false, got true") }
 }
