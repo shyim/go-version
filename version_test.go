@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestBranchParsing(t *testing.T) {
+	v := Must(NewVersion("6.5.x-dev"))
+
+	if v.String() != "6.5.9999999.9999999-dev" {
+		t.Errorf("Expected 6.5.9999999.9999999-dev, got %s", v.String())
+	}
+
+	c := MustConstraints(NewConstraint("~6.5.0"))
+
+	if !c.Check(v) {
+		t.Errorf("Expected true, got false")
+	}
+}
+
 func TestMatchingRCWithTilde(t *testing.T) {
 	vs := []*Version{
 		Must(NewVersion("6.4.4.0")),

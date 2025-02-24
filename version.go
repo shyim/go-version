@@ -39,13 +39,19 @@ func init() {
 // NewVersion parses the given version and returns a new
 // Version.
 func NewVersion(v string) (*Version, error) {
-	return newVersionFromRegExp(v, versionRegexp)
+	normalized, err := normalizeVersion(v)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return newVersionFromRegExp(normalized, versionRegexp)
 }
 
 func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
 	matches := pattern.FindStringSubmatch(v)
 	if matches == nil {
-		return nil, fmt.Errorf("Malformed version: %s", v)
+		return nil, fmt.Errorf("malformed version: %s", v)
 	}
 	segmentsStr := strings.Split(matches[1], ".")
 	segments := make([]int64, len(segmentsStr))
@@ -54,7 +60,7 @@ func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
 		val, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"Error parsing version: %s", err)
+				"error parsing version: %s", err)
 		}
 
 		segments[i] = val
