@@ -32,6 +32,7 @@ func init() {
 	constraintOperators = map[string]constraintFunc{
 		"":   constraintEqual,
 		"=":  constraintEqual,
+		"==": constraintEqual,
 		"!=": constraintNotEqual,
 		">":  constraintGreaterThan,
 		"<":  constraintLessThan,
@@ -45,6 +46,7 @@ func init() {
 
 	ops := []string{
 		"=",
+		"==",
 		"!=",
 		">",
 		"<",

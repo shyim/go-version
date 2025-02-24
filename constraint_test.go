@@ -357,3 +357,38 @@ func TestConstraintPrereleaseFunction(t *testing.T) {
 		}
 	}
 }
+
+func TestEqualConstraint(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		{"==1.0.0", "1.0.0", true},
+		{"==1.0.0", "1.0.1", false},
+		{"==1.0.0", "0.9.9", false},
+		{"==1.0.0-alpha", "1.0.0-alpha", true},
+		{"==1.0.0-alpha", "1.0.0-beta", false},
+
+		// Alias
+		{"=1.0.0", "1.0.0", true},
+		{"=1.0.0", "1.0.1", false},
+		{"=1.0.0", "0.9.9", false},
+		{"=1.0.0-alpha", "1.0.0-alpha", true},
+		{"=1.0.0-alpha", "1.0.0-beta", false},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+
+		v := Must(NewVersion(tc.version))
+		actual := c.Check(v)
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}
