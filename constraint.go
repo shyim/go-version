@@ -173,14 +173,18 @@ func prereleaseCheck(v, c *Version) bool {
 		return reflect.DeepEqual(c.Segments64(), v.Segments64())
 
 	case !cPre && vPre:
-		// A constraint without a pre-release can only match a version without a
-		// pre-release.
-		return false
+		// A constraint without a pre-release can match a version with a
+		// pre-release for tilde and caret operators
+		return true
 
 	case cPre && !vPre:
-		// OK, except with the pessimistic operator
+		// A constraint with a pre-release cannot match a version without a
+		// pre-release
+		return false
+
 	case !cPre && !vPre:
-		// OK
+		// Neither has prerelease
+		return true
 	}
 	return true
 }
@@ -266,20 +270,41 @@ func constraintCaret(v, c *Version) bool {
 }
 
 func constraintTilde(v, c *Version) bool {
-	if v.LessThan(c) {
+	// For tilde operator with prerelease versions, we need to compare without the prerelease tag first
+	vNoPrerelease := &Version{
+		segments: v.segments,
+		si:       v.si,
+	}
+	cNoPrerelease := &Version{
+		segments: c.segments,
+		si:       c.si,
+	}
+
+	// If the version without prerelease is less than the constraint without prerelease,
+	// then there is no way for the version to be valid against the constraint
+	if vNoPrerelease.LessThan(cNoPrerelease) {
 		return false
 	}
 
+	// Check the major version
 	if v.segments[0] != c.segments[0] {
 		return false
 	}
 
-	if v.segments[1] != c.segments[1] && c.si > 1 {
+	// Check the minor version if specified in the constraint
+	if c.si > 1 && v.segments[1] != c.segments[1] {
 		return false
 	}
 
-	if reflect.DeepEqual(v.segments, c.segments) && !prereleaseCheck(v, c) {
-		return false
+	// For tilde operator, we allow any prerelease version
+	// as long as the major and minor versions match
+	if v.IsPrerelease() && !c.IsPrerelease() {
+		return true
+	}
+
+	// For exact version matches, we need to check prereleases
+	if c.si == len(v.segments) && reflect.DeepEqual(v.segments[:c.si], c.segments[:c.si]) {
+		return prereleaseCheck(v, c)
 	}
 
 	return true

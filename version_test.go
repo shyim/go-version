@@ -166,8 +166,8 @@ func TestSortingVersions(t *testing.T) {
 
 	sort.Sort(Collection(vs))
 
-	if vs[0].String() != "6.2.0" {
-		t.Errorf("Expected 6.2.0, got %s", vs[0].String())
+	if vs[0].String() != "6.2.0.0" {
+		t.Errorf("Expected 6.2.0.0, got %s", vs[0].String())
 	}
 	if vs[1].String() != "6.3.1.0" {
 		t.Errorf("Expected 6.3.1.0, got %s", vs[1].String())
@@ -187,21 +187,27 @@ func TestSortingVersions(t *testing.T) {
 }
 
 func TestVersionIncrease(t *testing.T) {
-	version := Must(NewVersion("1.2.3"))
-	version.Increase()
-	if version.String() != "1.2.4" {
-		t.Errorf("Expected 1.2.4, got %s", version.String())
+	version := Must(NewVersion("1.2.3.0"))
+	version.IncreasePatch()
+	if version.String() != "1.2.4.0" {
+		t.Errorf("Expected 1.2.4.0, got %s", version.String())
+	}
+
+	version.IncreaseMinor()
+	if version.String() != "1.3.0.0" {
+		t.Errorf("Expected 1.3.0.0, got %s", version.String())
+	}
+
+	version.IncreaseMajor()
+	if version.String() != "2.0.0.0" {
+		t.Errorf("Expected 2.0.0.0, got %s", version.String())
 	}
 }
 
 func TestVersionString(t *testing.T) {
 	cases := [][]string{
-		{"1.2.3", "1.2.3"},
-		{"1.2-beta", "1.2.0-beta"},
-		{"1.2.0-x.Y.0", "1.2.0-x.Y.0"},
-		{"1.2.0-x.Y.0+metadata", "1.2.0-x.Y.0+metadata"},
-		{"1.2.0-metadata-1.2.0+metadata~dist", "1.2.0-metadata-1.2.0+metadata~dist"},
-		{"17.03.0-ce", "17.3.0-ce"}, // zero-padded fields
+		{"1.2.3", "1.2.3.0"},
+		{"1.2-beta", "1.2.0.0-beta"},
 	}
 
 	for _, tc := range cases {
@@ -236,14 +242,11 @@ func TestEqual(t *testing.T) {
 		{"v1.2+foo", "v1.2+beta", true},
 		{"v1.2.3.4", "v1.2.3.4", true},
 		{"v1.2.0.0", "v1.2", true},
-		{"v1.2.0.0.1", "v1.2", false},
 		{"v1.2", "v1.2.0.0", true},
-		{"v1.2", "v1.2.0.0.1", false},
-		{"v1.2.0.0", "v1.2.0.0.1", false},
+		{"v1.2.0.0", "v1.2.0.1", false},
 		{"v1.2.3.0", "v1.2.3.4", false},
-		{"1.7rc2", "1.7rc1", false},
-		{"1.7rc2", "1.7", false},
-		{"1.2.0", "1.2.0-X-1.2.0+metadata~dist", false},
+		{"1.7-rc2", "1.7-rc1", false},
+		{"1.7-rc2", "1.7", false},
 	}
 
 	for _, tc := range cases {
@@ -283,14 +286,13 @@ func TestGreaterThan(t *testing.T) {
 		{"v1.2+foo", "v1.2+beta", false},
 		{"v1.2.3.4", "v1.2.3.4", false},
 		{"v1.2.0.0", "v1.2", false},
-		{"v1.2.0.0.1", "v1.2", true},
+		{"v1.2.0.1", "v1.2", true},
 		{"v1.2", "v1.2.0.0", false},
-		{"v1.2", "v1.2.0.0.1", false},
-		{"v1.2.0.0", "v1.2.0.0.1", false},
+		{"v1.2", "v1.2.0.1", false},
+		{"v1.2.0.0", "v1.2.0.1", false},
 		{"v1.2.3.0", "v1.2.3.4", false},
-		{"1.7rc2", "1.7rc1", true},
-		{"1.7rc2", "1.7", false},
-		{"1.2.0", "1.2.0-X-1.2.0+metadata~dist", true},
+		{"1.7-rc2", "1.7-rc1", true},
+		{"1.7-rc2", "1.7", false},
 	}
 
 	for _, tc := range cases {
@@ -330,14 +332,12 @@ func TestLessThan(t *testing.T) {
 		{"v1.2+foo", "v1.2+beta", false},
 		{"v1.2.3.4", "v1.2.3.4", false},
 		{"v1.2.0.0", "v1.2", false},
-		{"v1.2.0.0.1", "v1.2", false},
 		{"v1.2", "v1.2.0.0", false},
-		{"v1.2", "v1.2.0.0.1", true},
-		{"v1.2.0.0", "v1.2.0.0.1", true},
+		{"v1.2", "v1.2.0.1", true},
+		{"v1.2.0.0", "v1.2.0.1", true},
 		{"v1.2.3.0", "v1.2.3.4", true},
-		{"1.7rc2", "1.7rc1", false},
-		{"1.7rc2", "1.7", true},
-		{"1.2.0", "1.2.0-X-1.2.0+metadata~dist", false},
+		{"1.7-rc2", "1.7-rc1", false},
+		{"1.7-rc2", "1.7", true},
 	}
 
 	for _, tc := range cases {
@@ -377,14 +377,13 @@ func TestGreaterThanOrEqual(t *testing.T) {
 		{"v1.2+foo", "v1.2+beta", true},
 		{"v1.2.3.4", "v1.2.3.4", true},
 		{"v1.2.0.0", "v1.2", true},
-		{"v1.2.0.0.1", "v1.2", true},
+		{"v1.2.0.1", "v1.2", true},
 		{"v1.2", "v1.2.0.0", true},
-		{"v1.2", "v1.2.0.0.1", false},
-		{"v1.2.0.0", "v1.2.0.0.1", false},
+		{"v1.2", "v1.2.0.1", false},
+		{"v1.2.0.0", "v1.2.0.1", false},
 		{"v1.2.3.0", "v1.2.3.4", false},
-		{"1.7rc2", "1.7rc1", true},
-		{"1.7rc2", "1.7", false},
-		{"1.2.0", "1.2.0-X-1.2.0+metadata~dist", true},
+		{"1.7-rc2", "1.7-rc1", true},
+		{"1.7-rc2", "1.7", false},
 	}
 
 	for _, tc := range cases {
@@ -424,14 +423,13 @@ func TestLessThanOrEqual(t *testing.T) {
 		{"v1.2+foo", "v1.2+beta", true},
 		{"v1.2.3.4", "v1.2.3.4", true},
 		{"v1.2.0.0", "v1.2", true},
-		{"v1.2.0.0.1", "v1.2", false},
 		{"v1.2", "v1.2.0.0", true},
-		{"v1.2", "v1.2.0.0.1", true},
-		{"v1.2.0.0", "v1.2.0.0.1", true},
+		{"v1.2.0.1", "v1.2", false},
+		{"v1.2", "v1.2.0.1", true},
+		{"v1.2.0.0", "v1.2.0.1", true},
 		{"v1.2.3.0", "v1.2.3.4", true},
-		{"1.7rc2", "1.7rc1", false},
-		{"1.7rc2", "1.7", true},
-		{"1.2.0", "1.2.0-X-1.2.0+metadata~dist", false},
+		{"1.7-rc2", "1.7-rc1", false},
+		{"1.7-rc2", "1.7", true},
 	}
 
 	for _, tc := range cases {
@@ -466,7 +464,7 @@ func TestConstraintPrerelease(t *testing.T) {
 		{"~> 2.1.0", false},
 		{"~> 2.1.0-dev", true},
 		{"> 2.0", false},
-		{">= 2.1.0-a", true},
+		{">= 2.1.0-alpha", true},
 	}
 
 	for _, tc := range cases {

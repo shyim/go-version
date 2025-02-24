@@ -12,37 +12,87 @@ func TestConstraints(t *testing.T) {
 
 func TestConstraintParsingWhitespaceAnd(t *testing.T) {
 	c, err := NewConstraint(">=1.0 <2.0")
-	if err != nil { t.Errorf("Expected no error, got %v", err) }
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	if c.String() != ">=1.0,<2.0" { t.Errorf("Expected '>=1.0,<2.0', got %s", c.String()) }
-	if !c.Check(Must(NewVersion("1.0.0"))) { t.Errorf("Expected true, got false") }
-	if c.Check(Must(NewVersion("2.0.0"))) { t.Errorf("Expected false, got true") }
+	if c.String() != ">=1.0,<2.0" {
+		t.Errorf("Expected '>=1.0,<2.0', got %s", c.String())
+	}
+	if !c.Check(Must(NewVersion("1.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("2.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
 }
 
 func TestConstraintParsingWhitespaceAndOr(t *testing.T) {
 	c, err := NewConstraint("~6.4 >=6.4.20.0 || ~6.5")
-	if err != nil { t.Errorf("Expected no error, got %v", err) }
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	if c.String() != "~6.4,>=6.4.20.0||~6.5" { t.Errorf("Expected '~6.4,>=6.4.20.0||~6.5', got %s", c.String()) }
-	if !c.Check(Must(NewVersion("6.4.20"))) { t.Errorf("Expected true, got false") }
-	if !c.Check(Must(NewVersion("6.4.20.0"))) { t.Errorf("Expected true, got false") }
-	if !c.Check(Must(NewVersion("6.5.0"))) { t.Errorf("Expected true, got false") }
-	if c.Check(Must(NewVersion("6.4.0.0"))) { t.Errorf("Expected false, got true") }
+	if c.String() != "~6.4,>=6.4.20.0||~6.5" {
+		t.Errorf("Expected '~6.4,>=6.4.20.0||~6.5', got %s", c.String())
+	}
+	if !c.Check(Must(NewVersion("6.4.20"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("6.4.20.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("6.5.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("6.4.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
 }
 
 func TestConstraintWithoutWhitespace(t *testing.T) {
 	c, err := NewConstraint("<6.6.1.0||>=6.3.5.0")
-	if err != nil { t.Errorf("Expected no error, got %v", err) }
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	if c.String() != "<6.6.1.0||>=6.3.5.0" { t.Errorf("Expected '<6.6.1.0||>=6.3.5.0', got %s", c.String()) }
-	if !c.Check(Must(NewVersion("6.4.0.0"))) { t.Errorf("Expected true, got false") }
+	if c.String() != "<6.6.1.0||>=6.3.5.0" {
+		t.Errorf("Expected '<6.6.1.0||>=6.3.5.0', got %s", c.String())
+	}
+	if !c.Check(Must(NewVersion("6.4.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
 }
 
 func TestConstraintVersionNumber(t *testing.T) {
 	c, err := NewConstraint("1.0.0")
-	if err != nil { t.Errorf("Expected no error, got %v", err) }
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	if c.String() != "1.0.0" { t.Errorf("Expected '1.0.0', got %s", c.String()) }
-	if !c.Check(Must(NewVersion("1.0.0"))) { t.Errorf("Expected true, got false") }
-	if c.Check(Must(NewVersion("1.0.1"))) { t.Errorf("Expected false, got true") }
+	if c.String() != "1.0.0" {
+		t.Errorf("Expected '1.0.0', got %s", c.String())
+	}
+	if !c.Check(Must(NewVersion("1.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("1.0.1"))) {
+		t.Errorf("Expected false, got true")
+	}
+}
+
+func TestConstraintMatchingWith4Digits(t *testing.T) {
+	c, err := NewConstraint("~6.5.0.0")
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	v := Must(NewVersion("6.5.0.0-rc1"))
+
+	t.Logf("Constraint: %s, Version: %s", c.String(), v.String())
+	t.Logf("Version segments: %v", v.Segments64())
+
+	if !c.Check(v) {
+		t.Errorf("Expected true, got false")
+	}
 }
