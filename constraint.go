@@ -21,11 +21,9 @@ type Constraints [][]*Constraint
 
 type constraintFunc func(v, c *Version) bool
 
-var constraintOperators map[string]constraintFunc
-
 var (
-	constraintRegexp              *regexp.Regexp
-	constraintAndNormalizerRegexp = regexp.MustCompile(`(?m)\s+`)
+	constraintRegexp    *regexp.Regexp
+	constraintOperators map[string]constraintFunc
 )
 
 func init() {
@@ -61,9 +59,8 @@ func init() {
 	}
 
 	constraintRegexp = regexp.MustCompile(fmt.Sprintf(
-		`^\s*(%s)\s*(%s)\s*$`,
-		strings.Join(ops, "|"),
-		VersionRegexpRaw))
+		`^\s*(%s)\s*([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)\s*$`,
+		strings.Join(ops, "|")))
 }
 
 // NewConstraint will parse one or more constraints from the given
@@ -74,8 +71,20 @@ func NewConstraint(cs string) (Constraints, error) {
 	ors := strings.Split(cs, "|")
 	or := make([][]*Constraint, len(ors))
 	for k, v := range ors {
-		// Normalize spaces between constraints to comma to parse easier and condions
-		v = constraintAndNormalizerRegexp.ReplaceAllString(strings.Trim(v, " "), ",")
+		// Normalize spaces between constraints to comma
+		v = strings.TrimSpace(v)
+		// Replace spaces between constraints with commas, but preserve spaces in operator-version pairs
+		parts := strings.Fields(v)
+		var normalized []string
+		for i := 0; i < len(parts); i++ {
+			if isOperator(parts[i]) && i+1 < len(parts) {
+				normalized = append(normalized, parts[i]+parts[i+1])
+				i++
+			} else {
+				normalized = append(normalized, parts[i])
+			}
+		}
+		v = strings.Join(normalized, ",")
 
 		vs := strings.Split(v, ",")
 		result := make([]*Constraint, len(vs))
@@ -91,6 +100,12 @@ func NewConstraint(cs string) (Constraints, error) {
 	}
 
 	return Constraints(or), nil
+}
+
+// isOperator checks if a string is a version constraint operator
+func isOperator(s string) bool {
+	_, ok := constraintOperators[s]
+	return ok || s == ">" || s == "<" || s == ">=" || s == "<=" || s == "!=" || s == "==" || s == "~>" || s == "~"
 }
 
 // MustConstraints is a helper that wraps a call to a function
@@ -166,6 +181,14 @@ func parseSingle(v string) (*Constraint, error) {
 		return nil, fmt.Errorf("malformed constraint: %s", v)
 	}
 
+	operator := matches[1]
+	version := matches[2]
+
+	// Handle wildcards in version numbers
+	if strings.Contains(version, "*") {
+		return parseWildcardConstraint(operator, version, v)
+	}
+
 	check, err := NewVersion(matches[2])
 	if err != nil {
 		return nil, err
@@ -176,6 +199,118 @@ func parseSingle(v string) (*Constraint, error) {
 		check:    check,
 		original: v,
 	}, nil
+}
+
+// parseWildcardConstraint handles parsing of version constraints containing wildcards.
+// It validates the wildcard pattern and creates appropriate constraint functions.
+func parseWildcardConstraint(operator, version, original string) (*Constraint, error) {
+	parts := strings.Split(version, ".")
+
+	// Check for malformed wildcard patterns
+	starCount := 0
+	for i, part := range parts {
+		if part == "*" {
+			starCount++
+			// Wildcard can only appear at the end
+			if i < len(parts)-1 {
+				return nil, fmt.Errorf("malformed constraint: %s", original)
+			}
+		}
+	}
+	if starCount > 1 {
+		return nil, fmt.Errorf("malformed constraint: %s", original)
+	}
+
+	if len(parts) >= 2 && parts[1] == "*" {
+		// Convert 2.* to check for major version match
+		majorVersion := parts[0]
+		if strings.Contains(majorVersion, "*") {
+			return nil, fmt.Errorf("malformed constraint: %s", original)
+		}
+		check, err := NewVersion(majorVersion + ".0.0")
+		if err != nil {
+			return nil, err
+		}
+
+		return &Constraint{
+			f: func(v, c *Version) bool {
+				switch operator {
+				case ">=":
+					return v.segments[0] >= c.segments[0]
+				case ">":
+					return v.segments[0] > c.segments[0]
+				case "<=":
+					return v.segments[0] <= c.segments[0]
+				case "<":
+					return v.segments[0] < c.segments[0]
+				case "", "=", "==":
+					return v.segments[0] == c.segments[0]
+				case "!=", "<>":
+					return v.segments[0] != c.segments[0]
+				default:
+					return v.segments[0] == c.segments[0]
+				}
+			},
+			check:    check,
+			original: original,
+		}, nil
+	} else if len(parts) >= 3 && parts[2] == "*" {
+		// Convert 2.0.* to check for major.minor version match
+		majorMinor := parts[0] + "." + parts[1]
+		if strings.Contains(majorMinor, "*") {
+			return nil, fmt.Errorf("malformed constraint: %s", original)
+		}
+		check, err := NewVersion(majorMinor + ".0")
+		if err != nil {
+			return nil, err
+		}
+
+		return &Constraint{
+			f: func(v, c *Version) bool {
+				// First check major version
+				if v.segments[0] != c.segments[0] {
+					switch operator {
+					case ">=":
+						return v.segments[0] > c.segments[0]
+					case ">":
+						return v.segments[0] > c.segments[0]
+					case "<=":
+						return v.segments[0] < c.segments[0]
+					case "<":
+						return v.segments[0] < c.segments[0]
+					case "", "=", "==":
+						return false
+					case "!=", "<>":
+						return true
+					default:
+						return false
+					}
+				}
+
+				// If major version matches, check minor version
+				switch operator {
+				case ">=":
+					return v.segments[1] >= c.segments[1]
+				case ">":
+					return v.segments[1] > c.segments[1]
+				case "<=":
+					return v.segments[1] <= c.segments[1]
+				case "<":
+					return v.segments[1] < c.segments[1]
+				case "", "=", "==":
+					return v.segments[1] == c.segments[1]
+				case "!=", "<>":
+					return v.segments[1] != c.segments[1]
+				default:
+					return v.segments[1] == c.segments[1]
+				}
+			},
+			check:    check,
+			original: original,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("malformed constraint: %s", original)
 }
 
 func prereleaseCheck(v, c *Version) bool {

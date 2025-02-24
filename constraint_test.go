@@ -20,6 +20,67 @@ func TestWildcard(t *testing.T) {
 	}
 }
 
+func TestWildcardInVersionMajor(t *testing.T) {
+	c := MustConstraints(NewConstraint("2.*"))
+	if !c.Check(Must(NewVersion("2.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.0.5"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.1.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.99.99"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("1.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	if c.Check(Must(NewVersion("3.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	// Test with pre-release versions
+	if !c.Check(Must(NewVersion("2.0.0-alpha"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.1.0-beta"))) {
+		t.Errorf("Expected true, got false")
+	}
+}
+
+func TestWildcardInVersionMinor(t *testing.T) {
+	c := MustConstraints(NewConstraint("2.0.*"))
+	if !c.Check(Must(NewVersion("2.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.0.5"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.0.99"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("2.1.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	if c.Check(Must(NewVersion("1.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	if c.Check(Must(NewVersion("3.0.0"))) {
+		t.Errorf("Expected false, got true")
+	}
+	// Test with pre-release versions
+	if !c.Check(Must(NewVersion("2.0.0-alpha"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("2.0.5-beta"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if c.Check(Must(NewVersion("2.1.0-alpha"))) {
+		t.Errorf("Expected false, got true")
+	}
+}
+
 func TestConstraints(t *testing.T) {
 	MustConstraints(NewConstraint(">=1.0.0"))
 	MustConstraints(NewConstraint(">=1.0.0 || <2.0.0"))
@@ -391,6 +452,81 @@ func TestEqualConstraint(t *testing.T) {
 		actual := c.Check(v)
 		if actual != tc.expected {
 			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}
+
+func TestWildcardWithOperators(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		// Greater than with wildcard
+		{">= 2.*", "2.0.0", true},
+		{">= 2.*", "2.1.0", true},
+		{">= 2.*", "3.0.0", true},
+		{">= 2.*", "1.9.9", false},
+
+		// Less than with wildcard
+		{"< 2.*", "1.9.9", true},
+		{"< 2.*", "2.0.0", false},
+		{"< 2.*", "2.1.0", false},
+
+		// Multiple constraints with wildcard
+		{">=2.* <4.*", "2.0.0", true},
+		{">=2.* <4.*", "3.9.9", true},
+		{">=2.* <4.*", "4.0.0", false},
+		{">=2.* <4.*", "1.9.9", false},
+
+		// Minor version wildcards with operators
+		{">= 2.0.*", "2.0.0", true},
+		{">= 2.0.*", "2.0.9", true},
+		{">= 2.0.*", "2.1.0", true},
+		{">= 2.0.*", "1.9.9", false},
+
+		{"< 2.1.*", "2.0.9", true},
+		{"< 2.1.*", "2.1.0", false},
+		{"< 2.1.*", "2.2.0", false},
+
+		// Complex constraints with wildcards
+		{">=2.0.* <2.2.*", "2.0.0", true},
+		{">=2.0.* <2.2.*", "2.1.9", true},
+		{">=2.0.* <2.2.*", "2.2.0", false},
+		{">=2.0.* <2.2.*", "1.9.9", false},
+
+		// Pre-release versions with wildcards
+		{"2.*", "2.0.0-alpha", true},
+		{"2.*", "2.1.0-beta", true},
+		{"2.0.*", "2.0.0-alpha", true},
+		{"2.0.*", "2.0.5-beta", true},
+		{"2.0.*", "2.1.0-alpha", false},
+	}
+
+	for _, tc := range tests {
+		c := MustConstraints(NewConstraint(tc.constraint))
+		actual := c.Check(Must(NewVersion(tc.version)))
+		if actual != tc.expected {
+			t.Errorf("Constraint '%s' with version '%s': expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}
+
+func TestMalformedWildcardConstraints(t *testing.T) {
+	malformed := []string{
+		"2.*.*",
+		"*.0.0",
+		"2.*.0",
+		"*.*",
+		"2.*.5",
+		">=*",
+		">=*.0",
+	}
+
+	for _, c := range malformed {
+		_, err := NewConstraint(c)
+		if err == nil {
+			t.Errorf("Expected error for malformed wildcard constraint: %s", c)
 		}
 	}
 }
