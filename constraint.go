@@ -40,6 +40,7 @@ func init() {
 		"~>": constraintPessimistic,
 		"^":  constraintCaret,
 		"~":  constraintTilde,
+		"*":  constraintWildcard,
 	}
 
 	ops := []string{
@@ -148,6 +149,14 @@ func (c *Constraint) String() string {
 }
 
 func parseSingle(v string) (*Constraint, error) {
+	if strings.TrimSpace(v) == "*" {
+		return &Constraint{
+			f:        constraintWildcard,
+			check:    nil,
+			original: v,
+		}, nil
+	}
+
 	matches := constraintRegexp.FindStringSubmatch(v)
 	if matches == nil {
 		return nil, fmt.Errorf("malformed constraint: %s", v)
@@ -340,6 +349,10 @@ func constraintTilde(v, c *Version) bool {
 		return prereleaseCheck(v, c)
 	}
 
+	return true
+}
+
+func constraintWildcard(v, c *Version) bool {
 	return true
 }
 

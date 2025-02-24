@@ -4,6 +4,22 @@ import (
 	"testing"
 )
 
+func TestWildcard(t *testing.T) {
+	c := MustConstraints(NewConstraint("*"))
+	if !c.Check(Must(NewVersion("1.0.0"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("1.0.0-alpha"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("1.0.0-beta"))) {
+		t.Errorf("Expected true, got false")
+	}
+	if !c.Check(Must(NewVersion("1.0.0-rc1"))) {
+		t.Errorf("Expected true, got false")
+	}
+}
+
 func TestConstraints(t *testing.T) {
 	MustConstraints(NewConstraint(">=1.0.0"))
 	MustConstraints(NewConstraint(">=1.0.0 || <2.0.0"))
