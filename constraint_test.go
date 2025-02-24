@@ -530,3 +530,30 @@ func TestMalformedWildcardConstraints(t *testing.T) {
 		}
 	}
 }
+
+func TestHyphenatedVersionRange(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		{"1.0.0 - 2.0.0", "1.0.0-alpha", true},
+		{"1.0.0 - 2.0.0", "2.0.0-alpha", true},
+		{"1.0.0 - 2.0.0", "0.9.9", false},
+		{"1.0.0 - 2.0.0", "3.0.0", false},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+
+		v := Must(NewVersion(tc.version))
+		actual := c.Check(v)
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}

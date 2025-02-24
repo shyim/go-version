@@ -71,6 +71,29 @@ func NewConstraint(cs string) (Constraints, error) {
 	ors := strings.Split(cs, "|")
 	or := make([][]*Constraint, len(ors))
 	for k, v := range ors {
+		// Check for hyphenated range
+		if strings.Contains(v, " - ") {
+			parts := strings.Split(v, " - ")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("malformed constraint: %s", v)
+			}
+
+			// Create >= for the lower bound
+			lowerBound, err := parseSingle(">=" + strings.TrimSpace(parts[0]))
+			if err != nil {
+				return nil, err
+			}
+
+			// Create <= for the upper bound
+			upperBound, err := parseSingle("<=" + strings.TrimSpace(parts[1]))
+			if err != nil {
+				return nil, err
+			}
+
+			or[k] = []*Constraint{lowerBound, upperBound}
+			continue
+		}
+
 		// Normalize spaces between constraints to comma
 		v = strings.TrimSpace(v)
 		// Replace spaces between constraints with commas, but preserve spaces in operator-version pairs
