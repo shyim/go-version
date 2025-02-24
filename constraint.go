@@ -210,6 +210,20 @@ func constraintLessThan(v, c *Version) bool {
 }
 
 func constraintGreaterThanEqual(v, c *Version) bool {
+	// For pre-release versions, we need to check if they match the constraint
+	if v.IsPrerelease() && !c.IsPrerelease() {
+		// Compare without pre-release info first
+		vNoPrerelease := &Version{
+			segments: v.segments,
+			si:       v.si,
+		}
+		cNoPrerelease := &Version{
+			segments: c.segments,
+			si:       c.si,
+		}
+		return vNoPrerelease.Compare(cNoPrerelease) >= 0
+	}
+
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) >= 0
 }
 
@@ -254,15 +268,34 @@ func constraintPessimistic(v, c *Version) bool {
 }
 
 func constraintCaret(v, c *Version) bool {
+	// For pre-release versions, we need to check if they match the constraint
+	if v.IsPrerelease() && !c.IsPrerelease() {
+		// Compare without pre-release info first
+		vNoPrerelease := &Version{
+			segments: v.segments,
+			si:       v.si,
+		}
+		cNoPrerelease := &Version{
+			segments: c.segments,
+			si:       c.si,
+		}
+		if vNoPrerelease.LessThan(cNoPrerelease) {
+			return false
+		}
+		if vNoPrerelease.segments[0] != cNoPrerelease.segments[0] {
+			return false
+		}
+		return true
+	}
+
+	// If the version being checked is naturally less than the constraint, then there
+	// is no way for the version to be valid against the constraint
 	if v.LessThan(c) {
 		return false
 	}
 
+	// Check the major version
 	if v.segments[0] != c.segments[0] {
-		return false
-	}
-
-	if reflect.DeepEqual(v.segments, c.segments) && !prereleaseCheck(v, c) {
 		return false
 	}
 
