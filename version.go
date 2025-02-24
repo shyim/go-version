@@ -43,9 +43,15 @@ func NewVersion(v string) (*Version, error) {
 }
 
 func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
-	matches := pattern.FindStringSubmatch(v)
+	normalized, err := normalizeVersion(v)
+
+	if err != nil {
+		return nil, err
+	}
+
+	matches := pattern.FindStringSubmatch(normalized)
 	if matches == nil {
-		return nil, fmt.Errorf("Malformed version: %s", v)
+		return nil, fmt.Errorf("malformed version: %s", v)
 	}
 	segmentsStr := strings.Split(matches[1], ".")
 	segments := make([]int64, len(segmentsStr))
@@ -54,7 +60,7 @@ func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
 		val, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"Error parsing version: %s", err)
+				"error parsing version: %s", err)
 		}
 
 		segments[i] = val
@@ -336,12 +342,25 @@ func (v *Version) Segments64() []int64 {
 	return result
 }
 
-func (v *Version) Increase() {
-	if len(v.segments) != 3 {
-		v.segments[2] = 1
-	}
+// IncreaseMajor increases the major version number by 1 and resets minor, patch and build to 0.
+func (v *Version) IncreaseMajor() {
+	v.segments[0]++
+	v.segments[1] = 0
+	v.segments[2] = 0
+	v.segments[3] = 0
+}
 
+// IncreaseMinor increases the minor version number by 1 and resets patch and build to 0.
+func (v *Version) IncreaseMinor() {
+	v.segments[1]++
+	v.segments[2] = 0
+	v.segments[3] = 0
+}
+
+// IncreasePatch increases the patch version number by 1 and resets build to 0.
+func (v *Version) IncreasePatch() {
 	v.segments[2]++
+	v.segments[3] = 0
 }
 
 // String returns the full version string included pre-release
