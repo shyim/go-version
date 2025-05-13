@@ -201,7 +201,6 @@ func parseSingle(v string) (*Constraint, error) {
 
 	matches := constraintRegexp.FindStringSubmatch(v)
 	if matches == nil {
-		fmt.Println(constraintRegexp.String())
 		return nil, fmt.Errorf("malformed constraint: %s", v)
 	}
 
