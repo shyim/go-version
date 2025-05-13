@@ -59,7 +59,7 @@ func init() {
 	}
 
 	constraintRegexp = regexp.MustCompile(fmt.Sprintf(
-		`^\s*(%s)\s*([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)\s*$`,
+		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)\s*$`,
 		strings.Join(ops, "|")))
 }
 
@@ -201,6 +201,7 @@ func parseSingle(v string) (*Constraint, error) {
 
 	matches := constraintRegexp.FindStringSubmatch(v)
 	if matches == nil {
+		fmt.Println(constraintRegexp.String())
 		return nil, fmt.Errorf("malformed constraint: %s", v)
 	}
 

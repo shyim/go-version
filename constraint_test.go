@@ -265,7 +265,6 @@ func TestTildeOperatorEdgeCases(t *testing.T) {
 		}
 	}
 }
-
 func TestMalformedConstraints(t *testing.T) {
 	malformed := []string{
 		">>1.0.0",
@@ -306,6 +305,7 @@ func TestConstraintString(t *testing.T) {
 		{"~1.0.0", "~1.0.0"},
 		{">=1.0.0,<2.0.0", ">=1.0.0,<2.0.0"},
 		{">=1.0.0 || <2.0.0", ">=1.0.0||<2.0.0"},
+		{"v6.6.10.0", "v6.6.10.0"},
 	}
 
 	for _, tc := range tests {
