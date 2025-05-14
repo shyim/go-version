@@ -106,7 +106,7 @@ func Must(v *Version, err error) *Version {
 // GreaterThan, GreaterThanOrEqual or LessThanOrEqual methods.
 func (v *Version) Compare(other *Version) int {
 	// A quick, efficient equality check
-	if v.String() == other.String() {
+	if v.NormalizedString() == other.NormalizedString() {
 		return 0
 	}
 
@@ -363,6 +363,12 @@ func (v *Version) IncreasePatch() {
 	v.segments[3] = 0
 }
 
+// Original returns the original parsed version as-is, including any
+// potential space, `v` prefix, etc.
+func (v *Version) String() string {
+	return v.original
+}
+
 // String returns the full version string included pre-release
 // and metadata information.
 //
@@ -371,7 +377,7 @@ func (v *Version) IncreasePatch() {
 // prefixed zeroes (1.04.0 => 1.4.0), `v` prefix (v1.0.0 => 1.0.0), and
 // missing parts (1.0 => 1.0.0) will be made into a canonicalized form
 // as shown in the parenthesized examples.
-func (v *Version) String() string {
+func (v *Version) NormalizedString() string {
 	var buf bytes.Buffer
 	fmtParts := make([]string, len(v.segments))
 	for i, s := range v.segments {

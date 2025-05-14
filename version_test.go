@@ -9,8 +9,8 @@ import (
 func TestBranchParsing(t *testing.T) {
 	v := Must(NewVersion("6.5.x-dev"))
 
-	if v.String() != "6.5.9999999.9999999-dev" {
-		t.Errorf("Expected 6.5.9999999.9999999-dev, got %s", v.String())
+	if v.NormalizedString() != "6.5.9999999.9999999-dev" {
+		t.Errorf("Expected 6.5.9999999.9999999-dev, got %s", v.NormalizedString())
 	}
 
 	c := MustConstraints(NewConstraint("~6.5.0"))
@@ -32,7 +32,7 @@ func TestMatchingRCWithTilde(t *testing.T) {
 
 	for _, v := range vs {
 		if constraint.Check(v) {
-			match = v.String()
+			match = v.NormalizedString()
 			break
 		}
 	}
@@ -54,7 +54,7 @@ func TestMatchingRCWithCaret(t *testing.T) {
 
 	for _, v := range vs {
 		if constraint.Check(v) {
-			match = v.String()
+			match = v.NormalizedString()
 			break
 		}
 	}
@@ -76,7 +76,7 @@ func TestMatchingRCWithCaretThreeNumbers(t *testing.T) {
 
 	for _, v := range vs {
 		if constraint.Check(v) {
-			match = v.String()
+			match = v.NormalizedString()
 			break
 		}
 	}
@@ -98,7 +98,7 @@ func TestMatchingRCWithGreaterThanEqual(t *testing.T) {
 
 	for _, v := range vs {
 		if constraint.Check(v) {
-			match = v.String()
+			match = v.NormalizedString()
 			break
 		}
 	}
@@ -167,41 +167,41 @@ func TestSortingVersions(t *testing.T) {
 
 	sort.Sort(Collection(vs))
 
-	if vs[0].String() != "6.2.0.0" {
-		t.Errorf("Expected 6.2.0.0, got %s", vs[0].String())
+	if vs[0].NormalizedString() != "6.2.0.0" {
+		t.Errorf("Expected 6.2.0.0, got %s", vs[0].NormalizedString())
 	}
-	if vs[1].String() != "6.3.1.0" {
-		t.Errorf("Expected 6.3.1.0, got %s", vs[1].String())
+	if vs[1].NormalizedString() != "6.3.1.0" {
+		t.Errorf("Expected 6.3.1.0, got %s", vs[1].NormalizedString())
 	}
-	if vs[2].String() != "6.4.8.0" {
-		t.Errorf("Expected 6.4.8.0, got %s", vs[2].String())
+	if vs[2].NormalizedString() != "6.4.8.0" {
+		t.Errorf("Expected 6.4.8.0, got %s", vs[2].NormalizedString())
 	}
-	if vs[3].String() != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1, got %s", vs[3].String())
+	if vs[3].NormalizedString() != "6.5.0.0-rc1" {
+		t.Errorf("Expected 6.5.0.0-rc1, got %s", vs[3].NormalizedString())
 	}
-	if vs[4].String() != "6.5.0.0-rc2" {
-		t.Errorf("Expected 6.5.0.0-rc2, got %s", vs[4].String())
+	if vs[4].NormalizedString() != "6.5.0.0-rc2" {
+		t.Errorf("Expected 6.5.0.0-rc2, got %s", vs[4].NormalizedString())
 	}
-	if vs[5].String() != "6.5.0.0" {
-		t.Errorf("Expected 6.5.0.0, got %s", vs[5].String())
+	if vs[5].NormalizedString() != "6.5.0.0" {
+		t.Errorf("Expected 6.5.0.0, got %s", vs[5].NormalizedString())
 	}
 }
 
 func TestVersionIncrease(t *testing.T) {
 	version := Must(NewVersion("1.2.3.0"))
 	version.IncreasePatch()
-	if version.String() != "1.2.4.0" {
-		t.Errorf("Expected 1.2.4.0, got %s", version.String())
+	if version.NormalizedString() != "1.2.4.0" {
+		t.Errorf("Expected 1.2.4.0, got %s", version.NormalizedString())
 	}
 
 	version.IncreaseMinor()
-	if version.String() != "1.3.0.0" {
-		t.Errorf("Expected 1.3.0.0, got %s", version.String())
+	if version.NormalizedString() != "1.3.0.0" {
+		t.Errorf("Expected 1.3.0.0, got %s", version.NormalizedString())
 	}
 
 	version.IncreaseMajor()
-	if version.String() != "2.0.0.0" {
-		t.Errorf("Expected 2.0.0.0, got %s", version.String())
+	if version.NormalizedString() != "2.0.0.0" {
+		t.Errorf("Expected 2.0.0.0, got %s", version.NormalizedString())
 	}
 }
 
@@ -217,7 +217,7 @@ func TestVersionString(t *testing.T) {
 			t.Fatalf("err: %s", err)
 		}
 
-		actual := v.String()
+		actual := v.NormalizedString()
 		expected := tc[1]
 		if actual != expected {
 			t.Fatalf("expected: %s\nactual: %s", expected, actual)
@@ -524,8 +524,8 @@ func TestVersionParsing(t *testing.T) {
 			continue
 		}
 
-		if v.String() != tc.expected {
-			t.Errorf("Expected %s, got %s", tc.expected, v.String())
+		if v.NormalizedString() != tc.expected {
+			t.Errorf("Expected %s, got %s", tc.expected, v.NormalizedString())
 		}
 	}
 }
@@ -695,8 +695,8 @@ func TestVersionIncrementFunctions(t *testing.T) {
 		if !reflect.DeepEqual(v.segments, tc.majorSegments) {
 			t.Errorf("After IncreaseMajor segments don't match for %s. Expected %v, got %v", tc.version, tc.majorSegments, v.segments)
 		}
-		if v.String() != tc.afterMajor {
-			t.Errorf("Expected %s after IncreaseMajor, got %s", tc.afterMajor, v.String())
+		if v.NormalizedString() != tc.afterMajor {
+			t.Errorf("Expected %s after IncreaseMajor, got %s", tc.afterMajor, v.NormalizedString())
 		}
 
 		// Test IncreaseMinor
@@ -705,8 +705,8 @@ func TestVersionIncrementFunctions(t *testing.T) {
 		if !reflect.DeepEqual(v.segments, tc.minorSegments) {
 			t.Errorf("After IncreaseMinor segments don't match for %s. Expected %v, got %v", tc.version, tc.minorSegments, v.segments)
 		}
-		if v.String() != tc.afterMinor {
-			t.Errorf("Expected %s after IncreaseMinor, got %s", tc.afterMinor, v.String())
+		if v.NormalizedString() != tc.afterMinor {
+			t.Errorf("Expected %s after IncreaseMinor, got %s", tc.afterMinor, v.NormalizedString())
 		}
 
 		// Test IncreasePatch
@@ -715,8 +715,8 @@ func TestVersionIncrementFunctions(t *testing.T) {
 		if !reflect.DeepEqual(v.segments, tc.patchSegments) {
 			t.Errorf("After IncreasePatch segments don't match for %s. Expected %v, got %v", tc.version, tc.patchSegments, v.segments)
 		}
-		if v.String() != tc.afterPatch {
-			t.Errorf("Expected %s after IncreasePatch, got %s", tc.afterPatch, v.String())
+		if v.NormalizedString() != tc.afterPatch {
+			t.Errorf("Expected %s after IncreasePatch, got %s", tc.afterPatch, v.NormalizedString())
 		}
 	}
 }
