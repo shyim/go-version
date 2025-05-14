@@ -18,7 +18,7 @@ func normalizeVersion(version string) (string, error) {
 	}
 
 	// Strip off stability flag e.g. "1.2.3@beta"
-	stabilityPattern := fmt.Sprintf("@(?:%s)$", `stable|beta|alpha|RC`)
+	stabilityPattern := fmt.Sprintf("@(?:%s)$", `stable|beta|dev|alpha|RC`)
 	reStability := regexp.MustCompile("(?i)" + stabilityPattern)
 	if match := reStability.FindStringSubmatch(version); match != nil {
 		version = version[:len(version)-len(match[0])]

@@ -46,6 +46,7 @@ func TestNormalize(t *testing.T) {
 		{"trunk", "dev-trunk"},
 		// Alias stripping: "dev-master as 1.0.0" should yield "dev-master"
 		{"dev-master as 1.0.0", "dev-master"},
+		{"1.0.0@dev", "1.0.0.0"},
 	}
 	for _, tt := range tests {
 		got, err := normalizeVersion(tt.input)
