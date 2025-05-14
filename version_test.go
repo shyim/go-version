@@ -780,3 +780,16 @@ func TestVersionCompareSegments(t *testing.T) {
 		}
 	}
 }
+
+func TestMajorMinorMethods(t *testing.T) {
+	v := Must(NewVersion("5.2.3"))
+	if v.Major() != 5 {
+		t.Errorf("Expected Major() to return 5, got %d", v.Major())
+	}
+	if v.Minor() != 2 {
+		t.Errorf("Expected Minor() to return 2, got %d", v.Minor())
+	}
+	if v.Patch() != 3 {
+		t.Errorf("Expected Patch() to return 3, got %d", v.Patch())
+	}
+}

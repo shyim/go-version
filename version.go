@@ -331,6 +331,21 @@ func (v *Version) Segments() []int {
 	return segmentSlice
 }
 
+// Major returns the major version number.
+func (v *Version) Major() int {
+	return int(v.segments[0])
+}
+
+// Minor returns the minor version number.
+func (v *Version) Minor() int {
+	return int(v.segments[1])
+}
+
+// Patch returns the patch version number.
+func (v *Version) Patch() int {
+	return int(v.segments[2])
+}
+
 // Segments64 returns the numeric segments of the version as a slice of int64s.
 //
 // This excludes any metadata or pre-release information. For example,
