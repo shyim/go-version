@@ -557,3 +557,31 @@ func TestHyphenatedVersionRange(t *testing.T) {
 		}
 	}
 }
+
+func TestStabilityFlags(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		{">=1.0.0@stable", "1.0.0-rc1", false},
+		{">=1.0.0@stable", "1.0.0", true},
+		{">=1.0.0@stable", "1.1.0", true},
+		{">=1.0.0@dev", "1.0.0-rc1", true},
+		{">=1.0.0@dev", "1.0.0", true},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+
+		v := Must(NewVersion(tc.version))
+		actual := c.Check(v)
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}

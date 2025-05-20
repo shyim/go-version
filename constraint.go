@@ -10,9 +10,10 @@ import (
 // Constraint represents a single constraint for a version, such as
 // ">= 1.0".
 type Constraint struct {
-	f        constraintFunc
-	check    *Version
-	original string
+	f         constraintFunc
+	check     *Version
+	original  string
+	stability string
 }
 
 // Constraints is a 2D slice of constraints. We make a custom type so
@@ -59,7 +60,7 @@ func init() {
 	}
 
 	constraintRegexp = regexp.MustCompile(fmt.Sprintf(
-		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)\s*$`,
+		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)(?:@([A-Za-z]+))?\s*$`,
 		strings.Join(ops, "|")))
 }
 
@@ -183,6 +184,9 @@ func (cs Constraints) String() string {
 
 // Check tests if a constraint is validated by the given version.
 func (c *Constraint) Check(v *Version) bool {
+	if c.stability == "stable" && v.IsPrerelease() {
+		return false
+	}
 	return c.f(v, c.check)
 }
 
@@ -206,10 +210,14 @@ func parseSingle(v string) (*Constraint, error) {
 
 	operator := matches[1]
 	version := matches[2]
+	stability := ""
+	if len(matches) > 3 {
+		stability = strings.ToLower(matches[3])
+	}
 
 	// Handle wildcards in version numbers
 	if strings.Contains(version, "*") {
-		return parseWildcardConstraint(operator, version, v)
+		return parseWildcardConstraint(operator, version, v, stability)
 	}
 
 	check, err := NewVersion(matches[2])
@@ -218,15 +226,16 @@ func parseSingle(v string) (*Constraint, error) {
 	}
 
 	return &Constraint{
-		f:        constraintOperators[matches[1]],
-		check:    check,
-		original: v,
+		f:         constraintOperators[matches[1]],
+		check:     check,
+		original:  v,
+		stability: stability,
 	}, nil
 }
 
 // parseWildcardConstraint handles parsing of version constraints containing wildcards.
 // It validates the wildcard pattern and creates appropriate constraint functions.
-func parseWildcardConstraint(operator, version, original string) (*Constraint, error) {
+func parseWildcardConstraint(operator, version, original, stability string) (*Constraint, error) {
 	parts := strings.Split(version, ".")
 
 	// Check for malformed wildcard patterns
@@ -274,8 +283,9 @@ func parseWildcardConstraint(operator, version, original string) (*Constraint, e
 					return v.segments[0] == c.segments[0]
 				}
 			},
-			check:    check,
-			original: original,
+			check:     check,
+			original:  original,
+			stability: stability,
 		}, nil
 	} else if len(parts) >= 3 && parts[2] == "*" {
 		// Convert 2.0.* to check for major.minor version match
@@ -328,8 +338,9 @@ func parseWildcardConstraint(operator, version, original string) (*Constraint, e
 					return v.segments[1] == c.segments[1]
 				}
 			},
-			check:    check,
-			original: original,
+			check:     check,
+			original:  original,
+			stability: stability,
 		}, nil
 	}
 
