@@ -10,9 +10,10 @@ import (
 // Constraint represents a single constraint for a version, such as
 // ">= 1.0".
 type Constraint struct {
-	f        constraintFunc
-	check    *Version
-	original string
+	f         constraintFunc
+	check     *Version
+	original  string
+	stability string
 }
 
 // Constraints is a 2D slice of constraints. We make a custom type so
@@ -24,6 +25,7 @@ type constraintFunc func(v, c *Version) bool
 var (
 	constraintRegexp    *regexp.Regexp
 	constraintOperators map[string]constraintFunc
+	stabilityLevels     map[string]int
 )
 
 func init() {
@@ -43,6 +45,14 @@ func init() {
 		"*":  constraintWildcard,
 	}
 
+	stabilityLevels = map[string]int{
+		"dev":    0,
+		"alpha":  1,
+		"beta":   2,
+		"rc":     3,
+		"stable": 4,
+	}
+
 	ops := []string{
 		"=",
 		"==",
@@ -59,7 +69,7 @@ func init() {
 	}
 
 	constraintRegexp = regexp.MustCompile(fmt.Sprintf(
-		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)\s*$`,
+		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)(?:@([A-Za-z]+))?\s*$`,
 		strings.Join(ops, "|")))
 }
 
@@ -183,6 +193,11 @@ func (cs Constraints) String() string {
 
 // Check tests if a constraint is validated by the given version.
 func (c *Constraint) Check(v *Version) bool {
+	if c.stability != "" {
+		if stabilityLevels[strings.ToLower(c.stability)] > stabilityLevels[getVersionStability(v)] {
+			return false
+		}
+	}
 	return c.f(v, c.check)
 }
 
@@ -206,10 +221,17 @@ func parseSingle(v string) (*Constraint, error) {
 
 	operator := matches[1]
 	version := matches[2]
+	stability := ""
+	if len(matches) > 3 && matches[3] != "" {
+		stability = strings.ToLower(matches[3])
+		if _, ok := stabilityLevels[stability]; !ok {
+			return nil, fmt.Errorf("unknown stability: %s", stability)
+		}
+	}
 
 	// Handle wildcards in version numbers
 	if strings.Contains(version, "*") {
-		return parseWildcardConstraint(operator, version, v)
+		return parseWildcardConstraint(operator, version, v, stability)
 	}
 
 	check, err := NewVersion(matches[2])
@@ -218,15 +240,16 @@ func parseSingle(v string) (*Constraint, error) {
 	}
 
 	return &Constraint{
-		f:        constraintOperators[matches[1]],
-		check:    check,
-		original: v,
+		f:         constraintOperators[matches[1]],
+		check:     check,
+		original:  v,
+		stability: stability,
 	}, nil
 }
 
 // parseWildcardConstraint handles parsing of version constraints containing wildcards.
 // It validates the wildcard pattern and creates appropriate constraint functions.
-func parseWildcardConstraint(operator, version, original string) (*Constraint, error) {
+func parseWildcardConstraint(operator, version, original, stability string) (*Constraint, error) {
 	parts := strings.Split(version, ".")
 
 	// Check for malformed wildcard patterns
@@ -274,8 +297,9 @@ func parseWildcardConstraint(operator, version, original string) (*Constraint, e
 					return v.segments[0] == c.segments[0]
 				}
 			},
-			check:    check,
-			original: original,
+			check:     check,
+			original:  original,
+			stability: stability,
 		}, nil
 	} else if len(parts) >= 3 && parts[2] == "*" {
 		// Convert 2.0.* to check for major.minor version match
@@ -328,8 +352,9 @@ func parseWildcardConstraint(operator, version, original string) (*Constraint, e
 					return v.segments[1] == c.segments[1]
 				}
 			},
-			check:    check,
-			original: original,
+			check:     check,
+			original:  original,
+			stability: stability,
 		}, nil
 	}
 
@@ -520,4 +545,23 @@ func constraintWildcard(v, c *Version) bool {
 
 func bothNotPreRelease(v, c *Version) bool {
 	return !v.IsPrerelease() || !c.IsPrerelease()
+}
+
+func getVersionStability(v *Version) string {
+	if !v.IsPrerelease() {
+		return "stable"
+	}
+	pre := strings.ToLower(v.Prerelease())
+	switch {
+	case strings.HasPrefix(pre, "dev"):
+		return "dev"
+	case strings.HasPrefix(pre, "alpha") || strings.HasPrefix(pre, "a"):
+		return "alpha"
+	case strings.HasPrefix(pre, "beta") || strings.HasPrefix(pre, "b"):
+		return "beta"
+	case strings.HasPrefix(pre, "rc"):
+		return "rc"
+	default:
+		return "dev"
+	}
 }
