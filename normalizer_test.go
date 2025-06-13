@@ -47,6 +47,27 @@ func TestNormalize(t *testing.T) {
 		// Alias stripping: "dev-master as 1.0.0" should yield "dev-master"
 		{"dev-master as 1.0.0", "dev-master"},
 		{"1.0.0@dev", "1.0.0.0"},
+		// Short form of alpha, beta versions
+		{"1.0.0a1", "1.0.0.0-alpha1"},
+		{"1.0.0alpha1", "1.0.0.0-alpha1"},
+		{"1.0.0b2", "1.0.0.0-beta2"},
+		{"1.0.0beta2", "1.0.0.0-beta2"},
+		{"1.0.0-a1", "1.0.0.0-alpha1"},
+		{"1.0.0-alpha1", "1.0.0.0-alpha1"},
+		{"1.0.0-b2", "1.0.0.0-beta2"},
+		{"1.0.0-beta2", "1.0.0.0-beta2"},
+		// Test without numeric suffix
+		{"1.0.0a", "1.0.0.0-alpha"},
+		{"1.0.0b", "1.0.0.0-beta"},
+		{"1.0.0-alpha", "1.0.0.0-alpha"},
+		{"1.0.0-beta", "1.0.0.0-beta"},
+		{"1.0.0-a", "1.0.0.0-alpha"},
+		{"1.0.0-b", "1.0.0.0-beta"},
+		// Test RC Versions
+		{"1.0.0-RC1", "1.0.0.0-rc1"},
+		{"1.0.0RC1", "1.0.0.0-rc1"},
+		{"1.0.0-RC2", "1.0.0.0-rc2"},
+		{"1.0.0RC2", "1.0.0.0-rc2"},
 	}
 	for _, tt := range tests {
 		got, err := normalizeVersion(tt.input)
