@@ -46,7 +46,7 @@ func normalizeVersion(version string) (string, error) {
 	modifierIndex := 0 // will indicate where modifiers are found in the matches
 
 	// Match classical versioning like 1.2.3.4 with optional modifiers.
-	classicalPattern := fmt.Sprintf(`^v?(\d{1,5})(\.\d+)?(\.\d+)?(\.\d+)?%s$`, `(?:-(stable|beta|alpha|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
+	classicalPattern := fmt.Sprintf(`^v?(\d{1,5})(\.\d+)?(\.\d+)?(\.\d+)?%s$`, `(?:-?(stable|beta|b|alpha|a|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
 	reClassical := regexp.MustCompile("(?i)" + classicalPattern)
 	if matches = reClassical.FindStringSubmatch(version); matches != nil {
 		major := matches[1]
@@ -67,7 +67,7 @@ func normalizeVersion(version string) (string, error) {
 		modifierIndex = 5
 	} else {
 		// Match date(time) based versioning such as 2020.01.01 with optional modifiers.
-		datePattern := fmt.Sprintf(`^v?(\d{4}(?:[.:-]?\d{2}){1,6}(?:[.:-]?\d{1,3}){0,2})%s$`, `(?:-(stable|beta|alpha|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
+		datePattern := fmt.Sprintf(`^v?(\d{4}(?:[.:-]?\d{2}){1,6}(?:[.:-]?\d{1,3}){0,2})%s$`, `(?:-(stable|beta|b|alpha|a|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
 		reDate := regexp.MustCompile("(?i)" + datePattern)
 		if matches = reDate.FindStringSubmatch(version); matches != nil {
 			// Replace any non-digit character with a dot.
