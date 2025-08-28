@@ -242,13 +242,19 @@ func TestTildeOperatorEdgeCases(t *testing.T) {
 		expected   bool
 	}{
 		{"~1.2", "1.2.0", true},
-		{"~1.2", "1.3.0", false},
+		{"~1.2", "1.3.0", true}, // ~1.2 is >=1.2.0 <2.0.0, so 1.3.0 matches
 		{"~1.2.3", "1.2.4", true},
 		{"~1.2.3", "1.3.0", false},
 		{"~1.2.3-alpha", "1.2.3-beta", true},
 		{"~0.1.2", "0.1.3", true},
 		{"~0.1.2", "0.2.0", false},
-		{"~0.1", "0.2.0", false},
+		{"~0.1", "0.2.0", true},    // ~0.1 is >=0.1.0 <1.0.0, so 0.2.0 matches
+		{"~1.2", "2.0.0", false},   // ~1.2 is >=1.2.0 <2.0.0, so 2.0.0 doesn't match
+		{"~0.1", "1.0.0", false},   // ~0.1 is >=0.1.0 <1.0.0, so 1.0.0 doesn't match
+		{"~6.6", "6.6.10", true},   // ~6.6 allows patch version changes
+		{"~6.6", "6.7.0", true},    // ~6.6 allows minor version changes (>=6.6.0 <7.0.0)
+		{"~6.6.0", "6.6.10", true}, // ~6.6.0 allows patch version changes
+		{"~6.6.0", "6.7.0", false}, // ~6.6.0 does not allow minor version changes (>=6.6.0 <6.7.0)
 	}
 
 	for _, tc := range tests {

@@ -14,13 +14,15 @@ type Constraint struct {
 	check     *Version
 	original  string
 	stability string
+	origSegments int // Number of segments in the original constraint string
+	operator  string // The operator used (e.g., "~", "^", ">=", etc.)
 }
 
 // Constraints is a 2D slice of constraints. We make a custom type so
 // that we can add methods to it.
 type Constraints [][]*Constraint
 
-type constraintFunc func(v, c *Version) bool
+type constraintFunc func(v, c *Version, origSegments int) bool
 
 var (
 	constraintRegexp    *regexp.Regexp
@@ -198,7 +200,7 @@ func (c *Constraint) Check(v *Version) bool {
 			return false
 		}
 	}
-	return c.f(v, c.check)
+	return c.f(v, c.check, c.origSegments)
 }
 
 func (c *Constraint) String() string {
@@ -211,6 +213,8 @@ func parseSingle(v string) (*Constraint, error) {
 			f:        constraintWildcard,
 			check:    nil,
 			original: v,
+			origSegments: 1,
+			operator: "*",
 		}, nil
 	}
 
@@ -229,6 +233,12 @@ func parseSingle(v string) (*Constraint, error) {
 		}
 	}
 
+	// Count the number of segments in the original version string
+	origSegments := 1
+	if version != "" {
+		origSegments = strings.Count(version, ".") + 1
+	}
+
 	// Handle wildcards in version numbers
 	if strings.Contains(version, "*") {
 		return parseWildcardConstraint(operator, version, v, stability)
@@ -244,6 +254,8 @@ func parseSingle(v string) (*Constraint, error) {
 		check:     check,
 		original:  v,
 		stability: stability,
+		origSegments: origSegments,
+		operator:  matches[1],
 	}, nil
 }
 
@@ -279,7 +291,7 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 		}
 
 		return &Constraint{
-			f: func(v, c *Version) bool {
+			f: func(v, c *Version, origSegments int) bool {
 				switch operator {
 				case ">=":
 					return v.segments[0] >= c.segments[0]
@@ -300,6 +312,8 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 			check:     check,
 			original:  original,
 			stability: stability,
+			operator:  operator,
+			origSegments: 2, // wildcard constraints don't use origSegments
 		}, nil
 	} else if len(parts) >= 3 && parts[2] == "*" {
 		// Convert 2.0.* to check for major.minor version match
@@ -313,7 +327,7 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 		}
 
 		return &Constraint{
-			f: func(v, c *Version) bool {
+			f: func(v, c *Version, origSegments int) bool {
 				// First check major version
 				if v.segments[0] != c.segments[0] {
 					switch operator {
@@ -355,6 +369,8 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 			check:     check,
 			original:  original,
 			stability: stability,
+			operator:  operator,
+			origSegments: 3, // wildcard constraints don't use origSegments
 		}, nil
 	}
 
@@ -389,23 +405,23 @@ func prereleaseCheck(v, c *Version) bool {
 // Constraint functions
 //-------------------------------------------------------------------
 
-func constraintEqual(v, c *Version) bool {
+func constraintEqual(v, c *Version, origSegments int) bool {
 	return v.Equal(c)
 }
 
-func constraintNotEqual(v, c *Version) bool {
+func constraintNotEqual(v, c *Version, origSegments int) bool {
 	return !v.Equal(c)
 }
 
-func constraintGreaterThan(v, c *Version) bool {
+func constraintGreaterThan(v, c *Version, origSegments int) bool {
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) == 1
 }
 
-func constraintLessThan(v, c *Version) bool {
+func constraintLessThan(v, c *Version, origSegments int) bool {
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) == -1
 }
 
-func constraintGreaterThanEqual(v, c *Version) bool {
+func constraintGreaterThanEqual(v, c *Version, origSegments int) bool {
 	// For pre-release versions, we need to check if they match the constraint
 	if v.IsPrerelease() && !c.IsPrerelease() {
 		// Compare without pre-release info first
@@ -423,11 +439,11 @@ func constraintGreaterThanEqual(v, c *Version) bool {
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) >= 0
 }
 
-func constraintLessThanEqual(v, c *Version) bool {
+func constraintLessThanEqual(v, c *Version, origSegments int) bool {
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) <= 0
 }
 
-func constraintPessimistic(v, c *Version) bool {
+func constraintPessimistic(v, c *Version, origSegments int) bool {
 	// Using a pessimistic constraint with a pre-release, restricts versions to pre-releases
 	if !prereleaseCheck(v, c) || (c.Prerelease() != "" && v.Prerelease() == "") {
 		return false
@@ -463,7 +479,7 @@ func constraintPessimistic(v, c *Version) bool {
 	return c.segments[cs-1] <= v.segments[cs-1]
 }
 
-func constraintCaret(v, c *Version) bool {
+func constraintCaret(v, c *Version, origSegments int) bool {
 	// For pre-release versions, we need to check if they match the constraint
 	if v.IsPrerelease() && !c.IsPrerelease() {
 		// Compare without pre-release info first
@@ -498,7 +514,7 @@ func constraintCaret(v, c *Version) bool {
 	return true
 }
 
-func constraintTilde(v, c *Version) bool {
+func constraintTilde(v, c *Version, origSegments int) bool {
 	// For tilde operator with prerelease versions, we need to compare without the prerelease tag first
 	vNoPrerelease := &Version{
 		segments: v.segments,
@@ -520,10 +536,18 @@ func constraintTilde(v, c *Version) bool {
 		return false
 	}
 
-	// Check the minor version if specified in the constraint
-	if c.si > 1 && v.segments[1] != c.segments[1] {
-		return false
+	// Tilde constraint behavior in Composer:
+	// ~X.Y.Z (3 segments) allows patch-level changes: >=X.Y.Z <X.(Y+1).0
+	// ~X.Y (2 segments) allows minor-level changes: >=X.Y.0 <(X+1).0.0
+	
+	// For constraints with 3+ segments (~X.Y.Z), minor version must match
+	if origSegments >= 3 {
+		if v.segments[1] != c.segments[1] {
+			return false
+		}
 	}
+	// For constraints with 2 segments (~X.Y), only major version must match
+	// (already checked above)
 
 	// For tilde operator, we allow any prerelease version
 	// as long as the major and minor versions match
@@ -539,7 +563,7 @@ func constraintTilde(v, c *Version) bool {
 	return true
 }
 
-func constraintWildcard(v, c *Version) bool {
+func constraintWildcard(v, c *Version, origSegments int) bool {
 	return true
 }
 
