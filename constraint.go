@@ -14,6 +14,8 @@ type Constraint struct {
 	check     *Version
 	original  string
 	stability string
+	origSegments int // Number of segments in the original constraint string
+	operator  string // The operator used (e.g., "~", "^", ">=", etc.)
 }
 
 // Constraints is a 2D slice of constraints. We make a custom type so
@@ -198,6 +200,10 @@ func (c *Constraint) Check(v *Version) bool {
 			return false
 		}
 	}
+	// Special handling for tilde operator to pass the original segments count
+	if c.operator == "~" {
+		return constraintTildeWithSegments(v, c.check, c.origSegments)
+	}
 	return c.f(v, c.check)
 }
 
@@ -229,6 +235,12 @@ func parseSingle(v string) (*Constraint, error) {
 		}
 	}
 
+	// Count the number of segments in the original version string
+	origSegments := 1
+	if version != "" {
+		origSegments = strings.Count(version, ".") + 1
+	}
+
 	// Handle wildcards in version numbers
 	if strings.Contains(version, "*") {
 		return parseWildcardConstraint(operator, version, v, stability)
@@ -244,6 +256,8 @@ func parseSingle(v string) (*Constraint, error) {
 		check:     check,
 		original:  v,
 		stability: stability,
+		origSegments: origSegments,
+		operator:  matches[1],
 	}, nil
 }
 
@@ -300,6 +314,7 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 			check:     check,
 			original:  original,
 			stability: stability,
+			operator:  operator,
 		}, nil
 	} else if len(parts) >= 3 && parts[2] == "*" {
 		// Convert 2.0.* to check for major.minor version match
@@ -355,6 +370,7 @@ func parseWildcardConstraint(operator, version, original, stability string) (*Co
 			check:     check,
 			original:  original,
 			stability: stability,
+			operator:  operator,
 		}, nil
 	}
 
@@ -499,6 +515,12 @@ func constraintCaret(v, c *Version) bool {
 }
 
 func constraintTilde(v, c *Version) bool {
+	// Default behavior when we don't have segment information
+	// This maintains backward compatibility
+	return constraintTildeWithSegments(v, c, 3)
+}
+
+func constraintTildeWithSegments(v, c *Version, origSegments int) bool {
 	// For tilde operator with prerelease versions, we need to compare without the prerelease tag first
 	vNoPrerelease := &Version{
 		segments: v.segments,
@@ -520,10 +542,18 @@ func constraintTilde(v, c *Version) bool {
 		return false
 	}
 
-	// Check the minor version if specified in the constraint
-	if c.si > 1 && v.segments[1] != c.segments[1] {
-		return false
+	// Tilde constraint behavior in Composer:
+	// ~X.Y.Z (3 segments) allows patch-level changes: >=X.Y.Z <X.(Y+1).0
+	// ~X.Y (2 segments) allows minor-level changes: >=X.Y.0 <(X+1).0.0
+	
+	// For constraints with 3+ segments (~X.Y.Z), minor version must match
+	if origSegments >= 3 {
+		if v.segments[1] != c.segments[1] {
+			return false
+		}
 	}
+	// For constraints with 2 segments (~X.Y), only major version must match
+	// (already checked above)
 
 	// For tilde operator, we allow any prerelease version
 	// as long as the major and minor versions match
