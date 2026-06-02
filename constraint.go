@@ -2,20 +2,20 @@ package version
 
 import (
 	"fmt"
-	"reflect"
-	"regexp"
+	"strconv"
 	"strings"
 )
 
 // Constraint represents a single constraint for a version, such as
 // ">= 1.0".
 type Constraint struct {
-	f         constraintFunc
-	check     *Version
-	original  string
-	stability string
-	origSegments int // Number of segments in the original constraint string
-	operator  string // The operator used (e.g., "~", "^", ">=", etc.)
+	f            constraintFunc
+	check        *Version
+	original     string
+	stability    string
+	origSegments int    // Number of segments in the original constraint string
+	operator     string // The operator used (e.g., "~", "^", ">=", etc.)
+	stableBound  bool
 }
 
 // Constraints is a 2D slice of constraints. We make a custom type so
@@ -25,7 +25,6 @@ type Constraints [][]*Constraint
 type constraintFunc func(v, c *Version, origSegments int) bool
 
 var (
-	constraintRegexp    *regexp.Regexp
 	constraintOperators map[string]constraintFunc
 	stabilityLevels     map[string]int
 )
@@ -41,7 +40,6 @@ func init() {
 		"<":  constraintLessThan,
 		">=": constraintGreaterThanEqual,
 		"<=": constraintLessThanEqual,
-		"~>": constraintPessimistic,
 		"^":  constraintCaret,
 		"~":  constraintTilde,
 		"*":  constraintWildcard,
@@ -55,24 +53,6 @@ func init() {
 		"stable": 4,
 	}
 
-	ops := []string{
-		"=",
-		"==",
-		"!=",
-		"<>",
-		">",
-		"<",
-		">=",
-		"<=",
-		"~>",
-		"\\^",
-		"~",
-		"",
-	}
-
-	constraintRegexp = regexp.MustCompile(fmt.Sprintf(
-		`^\s*(%s)\s*v?([0-9*]+(?:\.[0-9*]+)*(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)(?:@([A-Za-z]+))?\s*$`,
-		strings.Join(ops, "|")))
 }
 
 // NewConstraint will parse one or more constraints from the given
@@ -83,53 +63,39 @@ func NewConstraint(cs string) (Constraints, error) {
 	ors := strings.Split(cs, "|")
 	or := make([][]*Constraint, len(ors))
 	for k, v := range ors {
+		v = stripConstraintAlias(v)
 		// Check for hyphenated range
-		if strings.Contains(v, " - ") {
-			parts := strings.Split(v, " - ")
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("malformed constraint: %s", v)
-			}
-
-			// Create >= for the lower bound
-			lowerBound, err := parseSingle(">=" + strings.TrimSpace(parts[0]))
+		if strings.Contains(v, " - ") && !strings.Contains(v, ",") {
+			hyphenConstraints, err := parseHyphenRange(v)
 			if err != nil {
 				return nil, err
 			}
-
-			// Create <= for the upper bound
-			upperBound, err := parseSingle("<=" + strings.TrimSpace(parts[1]))
-			if err != nil {
-				return nil, err
-			}
-
-			or[k] = []*Constraint{lowerBound, upperBound}
+			or[k] = hyphenConstraints
 			continue
 		}
 
-		// Normalize spaces between constraints to comma
 		v = strings.TrimSpace(v)
-		// Replace spaces between constraints with commas, but preserve spaces in operator-version pairs
-		parts := strings.Fields(v)
-		var normalized []string
-		for i := 0; i < len(parts); i++ {
-			if isOperator(parts[i]) && i+1 < len(parts) {
-				normalized = append(normalized, parts[i]+parts[i+1])
-				i++
-			} else {
-				normalized = append(normalized, parts[i])
-			}
+		vs, err := splitAndConstraints(v)
+		if err != nil {
+			return nil, err
 		}
-		v = strings.Join(normalized, ",")
+		result := make([]*Constraint, 0, len(vs))
+		for _, single := range vs {
+			if strings.Contains(single, " - ") {
+				hyphenConstraints, err := parseHyphenRange(single)
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, hyphenConstraints...)
+				continue
+			}
 
-		vs := strings.Split(v, ",")
-		result := make([]*Constraint, len(vs))
-		for i, single := range vs {
 			c, err := parseSingle(single)
 			if err != nil {
 				return nil, err
 			}
 
-			result[i] = c
+			result = append(result, c)
 		}
 		or[k] = result
 	}
@@ -137,10 +103,123 @@ func NewConstraint(cs string) (Constraints, error) {
 	return Constraints(or), nil
 }
 
+func parseHyphenRange(v string) ([]*Constraint, error) {
+	parts := strings.Split(v, " - ")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("malformed constraint: %s", v)
+	}
+	if invalidHyphenWildcard(strings.TrimSpace(parts[0])) || invalidHyphenWildcard(strings.TrimSpace(parts[1])) {
+		return nil, fmt.Errorf("malformed constraint: %s", v)
+	}
+
+	lowerBound, err := parseSingle(">=" + strings.TrimSpace(parts[0]))
+	if err != nil {
+		return nil, err
+	}
+
+	upperBound, err := parseHyphenUpperBound(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return nil, err
+	}
+
+	return []*Constraint{lowerBound, upperBound}, nil
+}
+
+func splitAndConstraints(v string) ([]string, error) {
+	commaParts := strings.Split(v, ",")
+	var result []string
+	for _, commaPart := range commaParts {
+		commaPart = strings.TrimSpace(commaPart)
+		if commaPart == "" {
+			return nil, fmt.Errorf("malformed constraint: %s", v)
+		}
+		if strings.Contains(commaPart, " - ") {
+			result = append(result, commaPart)
+			continue
+		}
+
+		fields := strings.Fields(commaPart)
+		for i := 0; i < len(fields); i++ {
+			if isOperator(fields[i]) && i+1 < len(fields) {
+				result = append(result, fields[i]+fields[i+1])
+				i++
+			} else {
+				result = append(result, fields[i])
+			}
+		}
+	}
+	return result, nil
+}
+
+func stripConstraintAlias(constraint string) string {
+	lower := strings.ToLower(constraint)
+	if index := strings.Index(lower, " as "); index >= 0 {
+		return strings.TrimSpace(constraint[:index])
+	}
+	return constraint
+}
+
+func parseHyphenUpperBound(v string) (*Constraint, error) {
+	parts, ok := simpleVersionParts(v)
+	if !ok || len(parts) >= 3 {
+		return parseSingle("<=" + v)
+	}
+
+	upper, err := incrementVersionParts(parts)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseSingle("<" + upper)
+}
+
+func invalidHyphenWildcard(v string) bool {
+	return isWildcardConstraintVersion(v) && !isNumericDevBranch(v)
+}
+
+func simpleVersionParts(v string) ([]string, bool) {
+	v = strings.TrimSpace(v)
+	if len(v) > 1 && (v[0] == 'v' || v[0] == 'V') {
+		v = v[1:]
+	}
+	if v == "" || strings.ContainsAny(v, "-+@*") {
+		return nil, false
+	}
+
+	parts := strings.Split(v, ".")
+	for _, part := range parts {
+		if part == "" {
+			return nil, false
+		}
+		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
+			return nil, false
+		}
+	}
+
+	return parts, true
+}
+
+func incrementVersionParts(parts []string) (string, error) {
+	segments := make([]int64, len(parts))
+	for i, part := range parts {
+		segment, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return "", err
+		}
+		segments[i] = segment
+	}
+
+	if len(segments) == 1 {
+		return fmt.Sprintf("%d.0.0", segments[0]+1), nil
+	}
+
+	return fmt.Sprintf("%d.%d.0", segments[0], segments[1]+1), nil
+}
+
 // isOperator checks if a string is a version constraint operator
 func isOperator(s string) bool {
 	_, ok := constraintOperators[s]
-	return ok || s == ">" || s == "<" || s == ">=" || s == "<=" || s == "!=" || s == "==" || s == "~>" || s == "~"
+	return ok || s == ">" || s == "<" || s == ">=" || s == "<=" || s == "!=" || s == "==" || s == "~"
 }
 
 // MustConstraints is a helper that wraps a call to a function
@@ -200,7 +279,32 @@ func (c *Constraint) Check(v *Version) bool {
 			return false
 		}
 	}
+	if c.check != nil && (v.branch != "" || c.check.branch != "") {
+		// Branch versions (dev-*) have no numeric ordering, so Composer only
+		// gives them meaning under the equality operators; an ordering operator
+		// applied to a branch matches nothing.
+		switch c.operator {
+		case "", "=", "==":
+			return v.Equal(c.check)
+		case "!=", "<>":
+			return !v.Equal(c.check)
+		default:
+			return false
+		}
+	}
+	if c.stableBound && c.excludesSameVersionPrerelease() && v.IsPrerelease() && equalInt64(v.segments, c.check.segments) {
+		return false
+	}
 	return c.f(v, c.check, c.origSegments)
+}
+
+func (c *Constraint) excludesSameVersionPrerelease() bool {
+	switch c.operator {
+	case "", "=", "==", ">", ">=", "^", "~":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Constraint) String() string {
@@ -210,179 +314,380 @@ func (c *Constraint) String() string {
 func parseSingle(v string) (*Constraint, error) {
 	if strings.TrimSpace(v) == "*" {
 		return &Constraint{
-			f:        constraintWildcard,
-			check:    nil,
-			original: v,
+			f:            constraintWildcard,
+			check:        nil,
+			original:     v,
 			origSegments: 1,
-			operator: "*",
+			operator:     "*",
+		}, nil
+	}
+	if stability, ok := standaloneStabilityConstraint(v); ok {
+		return &Constraint{
+			f:            constraintWildcard,
+			check:        nil,
+			original:     v,
+			stability:    stability,
+			origSegments: 1,
+			operator:     "*",
 		}, nil
 	}
 
-	matches := constraintRegexp.FindStringSubmatch(v)
-	if matches == nil {
+	operator, version, stability, ok := splitConstraintParts(v)
+	if !ok {
 		return nil, fmt.Errorf("malformed constraint: %s", v)
 	}
 
-	operator := matches[1]
-	version := matches[2]
-	stability := ""
-	if len(matches) > 3 && matches[3] != "" {
-		stability = strings.ToLower(matches[3])
+	if stability != "" {
 		if _, ok := stabilityLevels[stability]; !ok {
 			return nil, fmt.Errorf("unknown stability: %s", stability)
 		}
 	}
 
-	// Count the number of segments in the original version string
-	origSegments := 1
-	if version != "" {
-		origSegments = strings.Count(version, ".") + 1
+	// Composer strips the @stability flag from the constraint and discards it
+	// when it is "stable" (see VersionParser::parseConstraint). The remaining
+	// flags only influence the implicit prerelease suffix appended below, so a
+	// trailing "@stable" must behave exactly like no flag at all.
+	if stability == "stable" {
+		stability = ""
 	}
+
+	version, err := stripDevReference(version, v)
+	if err != nil {
+		return nil, err
+	}
+
+	version = normalizeConstraintVersionTypos(version)
+	version = applyStabilitySuffix(version, stability, operator)
+	origSegments := countVersionSegments(version)
+	stableBound := hasStableModifier(version)
 
 	// Handle wildcards in version numbers
-	if strings.Contains(version, "*") {
-		return parseWildcardConstraint(operator, version, v, stability)
+	if isWildcardConstraintVersion(version) && !isNumericDevBranch(version) {
+		return parseWildcardConstraint(operator, version, v, "")
 	}
 
-	check, err := NewVersion(matches[2])
+	check, err := NewVersion(version)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Constraint{
-		f:         constraintOperators[matches[1]],
-		check:     check,
-		original:  v,
-		stability: stability,
+		f:            constraintOperators[operator],
+		check:        check,
+		original:     v,
 		origSegments: origSegments,
-		operator:  matches[1],
+		operator:     operator,
+		stableBound:  stableBound,
 	}, nil
+}
+
+func normalizeConstraintVersionTypos(version string) string {
+	version = strings.TrimSpace(version)
+	version = strings.ReplaceAll(version, "..dev", "-dev")
+	version = strings.ReplaceAll(version, "..DEV", "-DEV")
+	version = strings.ReplaceAll(version, "-.dev", "-dev")
+	version = strings.ReplaceAll(version, "-.DEV", "-DEV")
+	version = strings.ReplaceAll(version, "_-dev", "-dev")
+	version = strings.ReplaceAll(version, "_-DEV", "-DEV")
+	return strings.TrimRight(version, ".")
+}
+
+func standaloneStabilityConstraint(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	if len(s) < 2 || s[0] != '@' || !allAlpha(s[1:]) {
+		return "", false
+	}
+	stability := strings.ToLower(s[1:])
+	if _, ok := stabilityLevels[stability]; !ok {
+		return "", false
+	}
+	return stability, true
+}
+
+func applyStabilitySuffix(version, stability, operator string) string {
+	if stability == "" || !operatorUsesStabilitySuffix(operator) || hasNormalizedPrerelease(version) {
+		return version
+	}
+	return version + "-" + stability
+}
+
+func operatorUsesStabilitySuffix(operator string) bool {
+	switch operator {
+	case ">", ">=", "<", "<=", "^", "~":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasNormalizedPrerelease(version string) bool {
+	normalized, err := normalizeVersion(version)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(normalized, "-")
+}
+
+func stripDevReference(version, original string) (string, error) {
+	index := strings.Index(version, "#")
+	if index < 0 {
+		return version, nil
+	}
+
+	base := version[:index]
+	if strings.HasPrefix(strings.ToLower(base), "dev-") || isNumericDevBranch(base) {
+		return base, nil
+	}
+
+	return "", fmt.Errorf("malformed constraint: %s", original)
+}
+
+func splitConstraintParts(raw string) (operator, version, stability string, ok bool) {
+	s := strings.TrimSpace(raw)
+	for _, op := range []string{"==", "!=", "<>", ">=", "<=", "^", "~", ">", "<", "="} {
+		if strings.HasPrefix(s, op) {
+			operator = op
+			s = strings.TrimSpace(s[len(op):])
+			break
+		}
+	}
+	if s == "" {
+		return "", "", "", false
+	}
+
+	if at := strings.LastIndex(s, "@"); at > 0 && at < len(s)-1 && allAlpha(s[at+1:]) {
+		stability = strings.ToLower(s[at+1:])
+		s = strings.TrimSpace(s[:at])
+	}
+	if s == "" {
+		return "", "", "", false
+	}
+
+	if _, ok := constraintOperators[operator]; !ok {
+		return "", "", "", false
+	}
+
+	return operator, s, stability, true
+}
+
+func allAlpha(s string) bool {
+	for _, r := range s {
+		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func hasStableModifier(version string) bool {
+	version = strings.TrimSpace(version)
+	if i := strings.IndexAny(version, "+@"); i >= 0 {
+		version = version[:i]
+	}
+	lower := strings.ToLower(version)
+	return strings.HasSuffix(lower, "-stable") || strings.HasSuffix(lower, ".stable") || strings.HasSuffix(lower, "_stable")
+}
+
+func countVersionSegments(version string) int {
+	version = strings.TrimSpace(version)
+	if len(version) > 1 && (version[0] == 'v' || version[0] == 'V') {
+		version = version[1:]
+	}
+	if i := strings.IndexAny(version, "-+@"); i >= 0 {
+		version = version[:i]
+	}
+	if version == "" {
+		return 1
+	}
+	return strings.Count(version, ".") + 1
+}
+
+func isNumericDevBranch(version string) bool {
+	lower := strings.ToLower(strings.TrimSpace(version))
+	if !strings.HasSuffix(lower, "-dev") {
+		return false
+	}
+
+	base := strings.TrimSuffix(version, version[len(version)-4:])
+	if len(base) > 1 && (base[0] == 'v' || base[0] == 'V') {
+		base = base[1:]
+	}
+	parts := strings.Split(base, ".")
+	if len(parts) == 0 || len(parts) > 4 {
+		return false
+	}
+	seenWildcard := false
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		if isWildcardSegment(part) {
+			if seenWildcard {
+				return false
+			}
+			seenWildcard = true
+			continue
+		}
+		if seenWildcard {
+			return false
+		}
+		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func isWildcardConstraintVersion(version string) bool {
+	base := strings.TrimSpace(version)
+	if len(base) > 1 && (base[0] == 'v' || base[0] == 'V') {
+		base = base[1:]
+	}
+	if i := strings.IndexAny(base, "-+"); i >= 0 {
+		base = base[:i]
+	}
+	for _, part := range strings.Split(base, ".") {
+		if isWildcardSegment(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func isWildcardSegment(part string) bool {
+	return part == "*" || strings.EqualFold(part, "x")
 }
 
 // parseWildcardConstraint handles parsing of version constraints containing wildcards.
 // It validates the wildcard pattern and creates appropriate constraint functions.
 func parseWildcardConstraint(operator, version, original, stability string) (*Constraint, error) {
-	parts := strings.Split(version, ".")
-
-	// Check for malformed wildcard patterns
-	starCount := 0
-	for i, part := range parts {
-		if part == "*" {
-			starCount++
-			// Wildcard can only appear at the end
-			if i < len(parts)-1 {
-				return nil, fmt.Errorf("malformed constraint: %s", original)
-			}
-		}
+	version = strings.TrimSpace(version)
+	if len(version) > 1 && (version[0] == 'v' || version[0] == 'V') {
+		version = version[1:]
 	}
-	if starCount > 1 {
+	if operator == "^" || operator == "~" {
+		return nil, fmt.Errorf("malformed constraint: %s", original)
+	}
+	if strings.ContainsAny(version, "-+") {
 		return nil, fmt.Errorf("malformed constraint: %s", original)
 	}
 
-	if len(parts) >= 2 && parts[1] == "*" {
-		// Convert 2.* to check for major version match
-		majorVersion := parts[0]
-		if strings.Contains(majorVersion, "*") {
+	parts := strings.Split(version, ".")
+	wildcardIndex := -1
+	fixed := []int64{}
+	for i, part := range parts {
+		if part == "" {
 			return nil, fmt.Errorf("malformed constraint: %s", original)
 		}
-		check, err := NewVersion(majorVersion + ".0.0")
-		if err != nil {
-			return nil, err
+		if isWildcardSegment(part) {
+			if wildcardIndex == -1 {
+				wildcardIndex = i
+			}
+			continue
 		}
-
-		return &Constraint{
-			f: func(v, c *Version, origSegments int) bool {
-				switch operator {
-				case ">=":
-					return v.segments[0] >= c.segments[0]
-				case ">":
-					return v.segments[0] > c.segments[0]
-				case "<=":
-					return v.segments[0] <= c.segments[0]
-				case "<":
-					return v.segments[0] < c.segments[0]
-				case "", "=", "==":
-					return v.segments[0] == c.segments[0]
-				case "!=", "<>":
-					return v.segments[0] != c.segments[0]
-				default:
-					return v.segments[0] == c.segments[0]
-				}
-			},
-			check:     check,
-			original:  original,
-			stability: stability,
-			operator:  operator,
-			origSegments: 2, // wildcard constraints don't use origSegments
-		}, nil
-	} else if len(parts) >= 3 && parts[2] == "*" {
-		// Convert 2.0.* to check for major.minor version match
-		majorMinor := parts[0] + "." + parts[1]
-		if strings.Contains(majorMinor, "*") {
+		if wildcardIndex != -1 {
 			return nil, fmt.Errorf("malformed constraint: %s", original)
 		}
-		check, err := NewVersion(majorMinor + ".0")
+		segment, err := strconv.ParseInt(part, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("malformed constraint: %s", original)
 		}
+		fixed = append(fixed, segment)
+	}
 
+	if wildcardIndex == -1 {
+		return nil, fmt.Errorf("malformed constraint: %s", original)
+	}
+
+	if len(fixed) == 0 {
+		if operator != "" && operator != "=" && operator != "==" {
+			return nil, fmt.Errorf("malformed constraint: %s", original)
+		}
+		if strings.TrimSpace(original) != "*" {
+			check, err := NewVersion("0.0.0-dev")
+			if err != nil {
+				return nil, err
+			}
+			return &Constraint{
+				f:            constraintGreaterThanEqual,
+				check:        check,
+				original:     original,
+				stability:    stability,
+				operator:     ">=",
+				origSegments: 1,
+			}, nil
+		}
 		return &Constraint{
-			f: func(v, c *Version, origSegments int) bool {
-				// First check major version
-				if v.segments[0] != c.segments[0] {
-					switch operator {
-					case ">=":
-						return v.segments[0] > c.segments[0]
-					case ">":
-						return v.segments[0] > c.segments[0]
-					case "<=":
-						return v.segments[0] < c.segments[0]
-					case "<":
-						return v.segments[0] < c.segments[0]
-					case "", "=", "==":
-						return false
-					case "!=", "<>":
-						return true
-					default:
-						return false
-					}
-				}
-
-				// If major version matches, check minor version
-				switch operator {
-				case ">=":
-					return v.segments[1] >= c.segments[1]
-				case ">":
-					return v.segments[1] > c.segments[1]
-				case "<=":
-					return v.segments[1] <= c.segments[1]
-				case "<":
-					return v.segments[1] < c.segments[1]
-				case "", "=", "==":
-					return v.segments[1] == c.segments[1]
-				case "!=", "<>":
-					return v.segments[1] != c.segments[1]
-				default:
-					return v.segments[1] == c.segments[1]
-				}
-			},
-			check:     check,
-			original:  original,
-			stability: stability,
-			operator:  operator,
-			origSegments: 3, // wildcard constraints don't use origSegments
+			f:            constraintWildcard,
+			check:        nil,
+			original:     original,
+			stability:    stability,
+			operator:     operator,
+			origSegments: 1,
 		}, nil
 	}
 
-	return nil, fmt.Errorf("malformed constraint: %s", original)
+	checkParts := make([]string, len(fixed))
+	for i, segment := range fixed {
+		checkParts[i] = strconv.FormatInt(segment, 10)
+	}
+	for len(checkParts) < 3 {
+		checkParts = append(checkParts, "0")
+	}
+	check, err := NewVersion(strings.Join(checkParts, "."))
+	if err != nil {
+		return nil, err
+	}
+
+	fixedLen := len(fixed)
+	return &Constraint{
+		f: func(v, c *Version, origSegments int) bool {
+			cmp := comparePrefix(v.segments, c.segments[:fixedLen])
+			switch operator {
+			case ">=":
+				return cmp >= 0
+			case ">":
+				return cmp > 0
+			case "<=":
+				return cmp <= 0
+			case "<":
+				return cmp < 0
+			case "!=", "<>":
+				return cmp != 0
+			default:
+				return cmp == 0
+			}
+		},
+		check:        check,
+		original:     original,
+		stability:    stability,
+		operator:     operator,
+		origSegments: fixedLen + 1,
+	}, nil
+}
+
+func comparePrefix(versionSegments, prefix []int64) int {
+	for i, expected := range prefix {
+		if i >= len(versionSegments) {
+			if expected == 0 {
+				continue
+			}
+			return -1
+		}
+		if versionSegments[i] < expected {
+			return -1
+		}
+		if versionSegments[i] > expected {
+			return 1
+		}
+	}
+	return 0
 }
 
 func prereleaseCheck(v, c *Version) bool {
 	switch vPre, cPre := v.Prerelease() != "", c.Prerelease() != ""; {
 	case cPre && vPre:
-		// A constraint with a pre-release can only match a pre-release version
-		// with the same base segments.
-		return reflect.DeepEqual(c.Segments64(), v.Segments64())
+		return true
 
 	case !cPre && vPre:
 		// A constraint without a pre-release can match a version with a
@@ -414,11 +719,14 @@ func constraintNotEqual(v, c *Version, origSegments int) bool {
 }
 
 func constraintGreaterThan(v, c *Version, origSegments int) bool {
-	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) == 1
+	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.GreaterThan(c)
 }
 
 func constraintLessThan(v, c *Version, origSegments int) bool {
-	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) == -1
+	if v.IsPrerelease() && !c.IsPrerelease() && equalInt64(v.segments, c.segments) {
+		return false
+	}
+	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.LessThan(c)
 }
 
 func constraintGreaterThanEqual(v, c *Version, origSegments int) bool {
@@ -436,82 +744,47 @@ func constraintGreaterThanEqual(v, c *Version, origSegments int) bool {
 		return vNoPrerelease.Compare(cNoPrerelease) >= 0
 	}
 
-	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) >= 0
+	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.GreaterThanOrEqual(c)
 }
 
 func constraintLessThanEqual(v, c *Version, origSegments int) bool {
-	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.Compare(c) <= 0
-}
-
-func constraintPessimistic(v, c *Version, origSegments int) bool {
-	// Using a pessimistic constraint with a pre-release, restricts versions to pre-releases
-	if !prereleaseCheck(v, c) || (c.Prerelease() != "" && v.Prerelease() == "") {
-		return false
-	}
-
-	// If the version being checked is naturally less than the constraint, then there
-	// is no way for the version to be valid against the constraint
-	if v.LessThan(c) {
-		return false
-	}
-	// We'll use this more than once, so grab the length now so it's a little cleaner
-	// to write the later checks
-	cs := len(c.segments)
-
-	// If the version being checked has less specificity than the constraint, then there
-	// is no way for the version to be valid against the constraint
-	if cs > len(v.segments) {
-		return false
-	}
-
-	// Check the segments in the constraint against those in the version. If the version
-	// being checked, at any point, does not have the same values in each index of the
-	// constraints segments, then it cannot be valid against the constraint.
-	for i := 0; i < c.si-1; i++ {
-		if v.segments[i] != c.segments[i] {
-			return false
-		}
-	}
-
-	// Check the last part of the segment in the constraint. If the version segment at
-	// this index is less than the constraints segment at this index, then it cannot
-	// be valid against the constraint
-	return c.segments[cs-1] <= v.segments[cs-1]
+	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.LessThanOrEqual(c)
 }
 
 func constraintCaret(v, c *Version, origSegments int) bool {
-	// For pre-release versions, we need to check if they match the constraint
+	compareVersion := v
+	compareConstraint := c
+
 	if v.IsPrerelease() && !c.IsPrerelease() {
-		// Compare without pre-release info first
-		vNoPrerelease := &Version{
+		compareVersion = &Version{
 			segments: v.segments,
 			si:       v.si,
 		}
-		cNoPrerelease := &Version{
+		compareConstraint = &Version{
 			segments: c.segments,
 			si:       c.si,
 		}
-		if vNoPrerelease.LessThan(cNoPrerelease) {
-			return false
-		}
-		if vNoPrerelease.segments[0] != cNoPrerelease.segments[0] {
-			return false
-		}
-		return true
 	}
 
 	// If the version being checked is naturally less than the constraint, then there
 	// is no way for the version to be valid against the constraint
-	if v.LessThan(c) {
+	if compareVersion.LessThan(compareConstraint) {
 		return false
 	}
 
-	// Check the major version
-	if v.segments[0] != c.segments[0] {
-		return false
+	if c.segments[0] != 0 {
+		return v.segments[0] == c.segments[0]
 	}
 
-	return true
+	if origSegments <= 1 {
+		return v.segments[0] == 0
+	}
+
+	if c.segments[1] != 0 || origSegments <= 2 {
+		return v.segments[0] == 0 && v.segments[1] == c.segments[1]
+	}
+
+	return v.segments[0] == 0 && v.segments[1] == 0 && v.segments[2] == c.segments[2]
 }
 
 func constraintTilde(v, c *Version, origSegments int) bool {
@@ -525,10 +798,16 @@ func constraintTilde(v, c *Version, origSegments int) bool {
 		si:       c.si,
 	}
 
-	// If the version without prerelease is less than the constraint without prerelease,
-	// then there is no way for the version to be valid against the constraint
-	if vNoPrerelease.LessThan(cNoPrerelease) {
-		return false
+	if c.IsPrerelease() {
+		if v.LessThan(c) {
+			return false
+		}
+	} else {
+		// If the version without prerelease is less than the constraint without prerelease,
+		// then there is no way for the version to be valid against the constraint
+		if vNoPrerelease.LessThan(cNoPrerelease) {
+			return false
+		}
 	}
 
 	// Check the major version
@@ -539,9 +818,14 @@ func constraintTilde(v, c *Version, origSegments int) bool {
 	// Tilde constraint behavior in Composer:
 	// ~X.Y.Z (3 segments) allows patch-level changes: >=X.Y.Z <X.(Y+1).0
 	// ~X.Y (2 segments) allows minor-level changes: >=X.Y.0 <(X+1).0.0
-	
-	// For constraints with 3+ segments (~X.Y.Z), minor version must match
-	if origSegments >= 3 {
+
+	// For constraints with 4+ segments (~X.Y.Z.W), patch version must match.
+	if origSegments >= 4 {
+		if v.segments[1] != c.segments[1] || v.segments[2] != c.segments[2] {
+			return false
+		}
+	} else if origSegments >= 3 {
+		// For constraints with 3 segments (~X.Y.Z), minor version must match.
 		if v.segments[1] != c.segments[1] {
 			return false
 		}
@@ -549,17 +833,11 @@ func constraintTilde(v, c *Version, origSegments int) bool {
 	// For constraints with 2 segments (~X.Y), only major version must match
 	// (already checked above)
 
-	// For tilde operator, we allow any prerelease version
-	// as long as the major and minor versions match
-	if v.IsPrerelease() && !c.IsPrerelease() {
-		return true
-	}
-
-	// For exact version matches, we need to check prereleases
-	if c.si == len(v.segments) && reflect.DeepEqual(v.segments[:c.si], c.segments[:c.si]) {
-		return prereleaseCheck(v, c)
-	}
-
+	// Composer compiles ~X.Y.Z into >=X.Y.Z(-dev) <upper, so the implicit
+	// lower bound carries dev stability and prereleases that share the base
+	// segments (e.g. 1.2.3-beta for ~1.2.3) are in range. The only exclusion
+	// is for explicitly stable constraints, which Check() applies centrally
+	// via stableBound. The lower and upper bounds were already enforced above.
 	return true
 }
 
@@ -585,6 +863,8 @@ func getVersionStability(v *Version) string {
 		return "beta"
 	case strings.HasPrefix(pre, "rc"):
 		return "rc"
+	case strings.HasPrefix(pre, "patch") || strings.HasPrefix(pre, "p"):
+		return "stable"
 	default:
 		return "dev"
 	}

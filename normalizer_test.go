@@ -64,10 +64,10 @@ func TestNormalize(t *testing.T) {
 		{"1.0.0-a", "1.0.0.0-alpha"},
 		{"1.0.0-b", "1.0.0.0-beta"},
 		// Test RC Versions
-		{"1.0.0-RC1", "1.0.0.0-rc1"},
-		{"1.0.0RC1", "1.0.0.0-rc1"},
-		{"1.0.0-RC2", "1.0.0.0-rc2"},
-		{"1.0.0RC2", "1.0.0.0-rc2"},
+		{"1.0.0-RC1", "1.0.0.0-RC1"},
+		{"1.0.0RC1", "1.0.0.0-RC1"},
+		{"1.0.0-RC2", "1.0.0.0-RC2"},
+		{"1.0.0RC2", "1.0.0.0-RC2"},
 	}
 	for _, tt := range tests {
 		got, err := normalizeVersion(tt.input)

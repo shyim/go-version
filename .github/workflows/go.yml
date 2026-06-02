@@ -6,18 +6,53 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs:
+permissions:
+  contents: read
 
+jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
 
-    - name: Build
-      run: go build -v ./...
+      - name: Build
+        run: go build -v ./...
 
-    - name: Test
-      run: go test -v ./...
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race -v ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+
+      # Smoke-run each fuzz target for a short, bounded time. This re-checks the
+      # committed regression corpus under testdata/ and gives the fuzzer a brief
+      # window to surface new inputs on every push/PR without blowing up CI time.
+      - name: Fuzz smoke test
+        run: |
+          for target in \
+            FuzzNewVersion \
+            FuzzNormalizeComposerVersion \
+            FuzzNewConstraint \
+            FuzzSatisfies \
+            FuzzConstraintIntersects; do
+            echo "::group::$target"
+            go test -run '^$' -fuzz="^${target}$" -fuzztime=20s .
+            echo "::endgroup::"
+          done
