@@ -28,12 +28,70 @@ func normalizeVersion(version string) (string, error) {
 	return normalizeVersionWithContext(version, version)
 }
 
+// fastNumericNormalize handles the common case of a plain numeric version
+// ("1.2.3", "v1.2", "01.02") without invoking the regexp pipeline. It returns
+// ok=false (falling through to the full normalizer) for anything that is not a
+// strict 1-4 segment, all-digit, <=5-digit-first-segment version. The guards
+// are deliberately conservative so the output is always identical to the
+// classical regexp path (verified by TestNormalizeFastPathParity).
+func fastNumericNormalize(version string) (string, bool) {
+	body := version
+	if len(body) > 1 && (body[0] == 'v' || body[0] == 'V') {
+		body = body[1:]
+	}
+	if body == "" {
+		return "", false
+	}
+
+	segments := make([]string, 0, 4)
+	start := 0
+	for i := 0; i <= len(body); i++ {
+		if i == len(body) || body[i] == '.' {
+			seg := body[start:i]
+			if seg == "" {
+				return "", false // empty segment, e.g. "1..2" or trailing dot
+			}
+			for j := 0; j < len(seg); j++ {
+				if seg[j] < '0' || seg[j] > '9' {
+					return "", false // non-digit: let the regexp path handle it
+				}
+			}
+			segments = append(segments, seg)
+			if len(segments) > 4 {
+				return "", false // too many segments
+			}
+			start = i + 1
+		}
+	}
+
+	// The classical regexp caps the first segment at 5 digits; longer numbers
+	// are date-style and must not be padded here.
+	if len(segments[0]) > 5 {
+		return "", false
+	}
+
+	for len(segments) < 4 {
+		segments = append(segments, "0")
+	}
+	return strings.Join(segments, "."), true
+}
+
 func normalizeVersionWithContext(version, fullVersion string) (string, error) {
 	version = strings.TrimSpace(version)
 	invalidVersion := version
 	fullVersion = strings.TrimSpace(fullVersion)
 	if fullVersion == "" {
 		fullVersion = invalidVersion
+	}
+
+	// Fast path for plain numeric versions like "1.2.3", "v1.2", "01.02".
+	// This is a strict subset of the classical regexp path below: it only fires
+	// for 1-4 all-ASCII-digit segments with a <=5-digit first segment (so
+	// 6+-digit date-style numbers still route through the date heuristic), and
+	// it copies the raw digit substrings verbatim so leading zeros are
+	// preserved exactly as the regexp path would. Anything else falls through.
+	if normalized, ok := fastNumericNormalize(version); ok {
+		return normalized, nil
 	}
 
 	// Strip off aliasing e.g. "1.2.3 as 1.2.3-alias"

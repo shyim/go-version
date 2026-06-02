@@ -3,7 +3,6 @@ package version
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -113,8 +112,10 @@ func Must(v *Version, err error) *Version {
 // If you want boolean results, use the LessThan, Equal,
 // GreaterThan, GreaterThanOrEqual or LessThanOrEqual methods.
 func (v *Version) Compare(other *Version) int {
-	// A quick, efficient equality check
-	if v.NormalizedString() == other.NormalizedString() {
+	// A quick, in-memory equality check. This mirrors comparing the canonical
+	// NormalizedString() of both versions, but avoids re-running the regexp
+	// normalizer (which NormalizedString does) on the hot path.
+	if normalizedEqual(v, other) {
 		return 0
 	}
 
@@ -131,11 +132,13 @@ func (v *Version) Compare(other *Version) int {
 		return 1
 	}
 
-	segmentsSelf := v.Segments64()
-	segmentsOther := other.Segments64()
+	// Read segments directly; we only compare them here, so the defensive copy
+	// from Segments64() is unnecessary.
+	segmentsSelf := v.segments
+	segmentsOther := other.segments
 
 	// If the segments are the same, we must compare on prerelease info
-	if reflect.DeepEqual(segmentsSelf, segmentsOther) {
+	if equalInt64(segmentsSelf, segmentsOther) {
 		preSelf := v.Prerelease()
 		preOther := other.Prerelease()
 		if preSelf == "" && preOther == "" {
@@ -198,6 +201,56 @@ func (v *Version) Compare(other *Version) int {
 
 	// if we got this far, they're equal
 	return 0
+}
+
+// normalizedEqual reports whether two versions have the same canonical form,
+// i.e. whether v.NormalizedString() == other.NormalizedString(), without
+// building or re-normalizing the strings. It must stay in sync with
+// NormalizedString's view of a version: a branch is compared verbatim, and
+// otherwise equality is decided by the prerelease part plus the si-truncated,
+// zero-padded numeric segments.
+func normalizedEqual(v, other *Version) bool {
+	if v.branch != "" || other.branch != "" {
+		// NormalizedString returns the branch string verbatim for branch
+		// versions; a branch and a non-branch are never equal.
+		return v.branch == other.branch
+	}
+	if v.pre != other.pre {
+		return false
+	}
+	return equalInt64(siSegments(v), siSegments(other))
+}
+
+// siSegments returns the segments NormalizedString would render: the first si
+// segments when si is set, otherwise all segments.
+func siSegments(v *Version) []int64 {
+	if v.si > 0 && v.si <= len(v.segments) {
+		return v.segments[:v.si]
+	}
+	return v.segments
+}
+
+// equalInt64 compares two segment slices for equality, treating missing
+// trailing entries as zero (so [1,2] and [1,2,0] are equal). This matches how
+// NormalizedString and Compare treat jagged specificity.
+func equalInt64(a, b []int64) bool {
+	n := len(a)
+	if len(b) > n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		var x, y int64
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
 }
 
 func allZero(segs []int64) bool {

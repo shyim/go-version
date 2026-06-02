@@ -2,7 +2,6 @@ package version
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 )
@@ -293,7 +292,7 @@ func (c *Constraint) Check(v *Version) bool {
 			return false
 		}
 	}
-	if c.stableBound && c.excludesSameVersionPrerelease() && v.IsPrerelease() && reflect.DeepEqual(v.Segments64(), c.check.Segments64()) {
+	if c.stableBound && c.excludesSameVersionPrerelease() && v.IsPrerelease() && equalInt64(v.segments, c.check.segments) {
 		return false
 	}
 	return c.f(v, c.check, c.origSegments)
@@ -724,7 +723,7 @@ func constraintGreaterThan(v, c *Version, origSegments int) bool {
 }
 
 func constraintLessThan(v, c *Version, origSegments int) bool {
-	if v.IsPrerelease() && !c.IsPrerelease() && reflect.DeepEqual(v.Segments64(), c.Segments64()) {
+	if v.IsPrerelease() && !c.IsPrerelease() && equalInt64(v.segments, c.segments) {
 		return false
 	}
 	return (bothNotPreRelease(v, c) || prereleaseCheck(v, c)) && v.LessThan(c)
