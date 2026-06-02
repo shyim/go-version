@@ -37,8 +37,8 @@ func TestMatchingRCWithTilde(t *testing.T) {
 		}
 	}
 
-	if match != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	if match != "6.5.0.0-RC1" {
+		t.Errorf("Expected 6.5.0.0-RC1 but got %s", match)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestMatchingRCWithCaret(t *testing.T) {
 		}
 	}
 
-	if match != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	if match != "6.5.0.0-RC1" {
+		t.Errorf("Expected 6.5.0.0-RC1 but got %s", match)
 	}
 }
 
@@ -81,8 +81,8 @@ func TestMatchingRCWithCaretThreeNumbers(t *testing.T) {
 		}
 	}
 
-	if match != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	if match != "6.5.0.0-RC1" {
+		t.Errorf("Expected 6.5.0.0-RC1 but got %s", match)
 	}
 }
 
@@ -103,8 +103,8 @@ func TestMatchingRCWithGreaterThanEqual(t *testing.T) {
 		}
 	}
 
-	if match != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1 but got %s", match)
+	if match != "6.5.0.0-RC1" {
+		t.Errorf("Expected 6.5.0.0-RC1 but got %s", match)
 	}
 }
 
@@ -176,11 +176,11 @@ func TestSortingVersions(t *testing.T) {
 	if vs[2].NormalizedString() != "6.4.8.0" {
 		t.Errorf("Expected 6.4.8.0, got %s", vs[2].NormalizedString())
 	}
-	if vs[3].NormalizedString() != "6.5.0.0-rc1" {
-		t.Errorf("Expected 6.5.0.0-rc1, got %s", vs[3].NormalizedString())
+	if vs[3].NormalizedString() != "6.5.0.0-RC1" {
+		t.Errorf("Expected 6.5.0.0-RC1, got %s", vs[3].NormalizedString())
 	}
-	if vs[4].NormalizedString() != "6.5.0.0-rc2" {
-		t.Errorf("Expected 6.5.0.0-rc2, got %s", vs[4].NormalizedString())
+	if vs[4].NormalizedString() != "6.5.0.0-RC2" {
+		t.Errorf("Expected 6.5.0.0-RC2, got %s", vs[4].NormalizedString())
 	}
 	if vs[5].NormalizedString() != "6.5.0.0" {
 		t.Errorf("Expected 6.5.0.0, got %s", vs[5].NormalizedString())
@@ -462,8 +462,8 @@ func TestConstraintPrerelease(t *testing.T) {
 	}{
 		{"= 1.0", false},
 		{"= 1.0-beta", true},
-		{"~> 2.1.0", false},
-		{"~> 2.1.0-dev", true},
+		{"~ 2.1.0", false},
+		{"~ 2.1.0-dev", true},
 		{"> 2.0", false},
 		{">= 2.1.0-alpha", true},
 	}
@@ -605,31 +605,28 @@ func TestVersionSegments(t *testing.T) {
 	}
 }
 
-func TestVersionMetadata(t *testing.T) {
+// TestVersionBuildMetadata verifies that build metadata is stripped during
+// normalization (matching Composer, which discards everything after "+") while
+// any pre-release part is still parsed correctly.
+func TestVersionBuildMetadata(t *testing.T) {
 	tests := []struct {
-		version          string
-		expectedMetadata string
-		expectedPre      string
-		isPrerelease     bool
+		version      string
+		expectedPre  string
+		isPrerelease bool
 	}{
-		{"1.2.3", "", "", false},
-		{"1.2.3+build", "", "", false},
-		{"1.2.3-beta", "", "beta", true},
-		{"1.2.3-beta+build", "", "beta", true},
-		{"1.2.3+build.1", "", "", false},
-		{"1.2.3-beta1+build.1", "", "beta1", true},
-		{"1.2.3-alpha1+build.123.4", "", "alpha1", true},
+		{"1.2.3", "", false},
+		{"1.2.3+build", "", false},
+		{"1.2.3-beta", "beta", true},
+		{"1.2.3-beta+build", "beta", true},
+		{"1.2.3+build.1", "", false},
+		{"1.2.3-beta1+build.1", "beta1", true},
+		{"1.2.3-alpha1+build.123.4", "alpha1", true},
 	}
 
 	for _, tc := range tests {
 		v := Must(NewVersion(tc.version))
-		metadata := v.Metadata()
 		prerelease := v.Prerelease()
 		isPrerelease := v.IsPrerelease()
-
-		if metadata != tc.expectedMetadata {
-			t.Errorf("Expected metadata %s, got %s for version %s", tc.expectedMetadata, metadata, tc.version)
-		}
 
 		if prerelease != tc.expectedPre {
 			t.Errorf("Expected prerelease %s, got %s for version %s", tc.expectedPre, prerelease, tc.version)

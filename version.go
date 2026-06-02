@@ -25,11 +25,11 @@ const (
 
 // Version represents a single version.
 type Version struct {
-	metadata string
 	pre      string
 	segments []int64
 	si       int
 	original string
+	branch   string
 }
 
 func init() {
@@ -47,6 +47,15 @@ func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.HasPrefix(strings.ToLower(normalized), "dev-") {
+		return &Version{
+			pre:      "dev",
+			segments: []int64{0, 0, 0},
+			original: v,
+			branch:   normalized,
+		}, nil
 	}
 
 	matches := pattern.FindStringSubmatch(normalized)
@@ -80,7 +89,6 @@ func newVersionFromRegExp(v string, pattern *regexp.Regexp) (*Version, error) {
 	}
 
 	return &Version{
-		metadata: matches[10],
 		pre:      pre,
 		segments: segments,
 		si:       si,
@@ -110,6 +118,19 @@ func (v *Version) Compare(other *Version) int {
 		return 0
 	}
 
+	if v.branch != "" || other.branch != "" {
+		if v.branch == "" {
+			return 1
+		}
+		if other.branch == "" {
+			return -1
+		}
+		if v.branch < other.branch {
+			return -1
+		}
+		return 1
+	}
+
 	segmentsSelf := v.Segments64()
 	segmentsOther := other.Segments64()
 
@@ -121,9 +142,15 @@ func (v *Version) Compare(other *Version) int {
 			return 0
 		}
 		if preSelf == "" {
+			if parsePrereleasePart(preOther).rank == prereleaseRankPatch {
+				return -1
+			}
 			return 1
 		}
 		if preOther == "" {
+			if parsePrereleasePart(preSelf).rank == prereleaseRankPatch {
+				return 1
+			}
 			return -1
 		}
 
@@ -182,6 +209,67 @@ func allZero(segs []int64) bool {
 	return true
 }
 
+type prereleasePart struct {
+	rank        int
+	suffix      string
+	hasSuffix   bool
+	suffixValue int64
+	suffixNum   bool
+}
+
+const (
+	prereleaseRankDev = iota
+	prereleaseRankAlpha
+	prereleaseRankBeta
+	prereleaseRankRC
+	prereleaseRankStable
+	prereleaseRankPatch
+	prereleaseRankOther
+)
+
+func parsePrereleasePart(part string) prereleasePart {
+	lower := strings.ToLower(part)
+	for _, prefix := range []struct {
+		name string
+		rank int
+	}{
+		{"dev", prereleaseRankDev},
+		{"alpha", prereleaseRankAlpha},
+		{"beta", prereleaseRankBeta},
+		{"rc", prereleaseRankRC},
+		{"stable", prereleaseRankStable},
+		{"patch", prereleaseRankPatch},
+	} {
+		if strings.HasPrefix(lower, prefix.name) {
+			suffix := part[len(prefix.name):]
+			parsed := prereleasePart{
+				rank:      prefix.rank,
+				suffix:    suffix,
+				hasSuffix: suffix != "",
+			}
+			if suffix != "" {
+				if value, err := strconv.ParseInt(suffix, 10, 64); err == nil {
+					parsed.suffixValue = value
+					parsed.suffixNum = true
+				}
+			}
+			return parsed
+		}
+	}
+
+	parsed := prereleasePart{
+		rank:      prereleaseRankOther,
+		suffix:    part,
+		hasSuffix: part != "",
+	}
+	if value, err := strconv.ParseInt(part, 10, 64); err == nil {
+		parsed.rank = prereleaseRankStable
+		parsed.suffixValue = value
+		parsed.suffixNum = true
+	}
+	return parsed
+}
+
 func comparePart(preSelf string, preOther string) int {
 	if preSelf == preOther {
 		return 0
@@ -211,6 +299,40 @@ func comparePart(preSelf string, preOther string) int {
 
 	if preOther == "" {
 		if selfNumeric {
+			return 1
+		}
+		return -1
+	}
+
+	selfPart := parsePrereleasePart(preSelf)
+	otherPart := parsePrereleasePart(preOther)
+	if selfPart.rank != otherPart.rank {
+		if selfPart.rank < otherPart.rank {
+			return -1
+		}
+		return 1
+	}
+
+	if selfPart.rank != prereleaseRankOther {
+		if !selfPart.hasSuffix && !otherPart.hasSuffix {
+			return 0
+		}
+		if !selfPart.hasSuffix {
+			return -1
+		}
+		if !otherPart.hasSuffix {
+			return 1
+		}
+		if selfPart.suffixNum && otherPart.suffixNum {
+			if selfPart.suffixValue == otherPart.suffixValue {
+				return 0
+			}
+			if selfPart.suffixValue < otherPart.suffixValue {
+				return -1
+			}
+			return 1
+		}
+		if selfPart.suffix > otherPart.suffix {
 			return 1
 		}
 		return -1
@@ -269,38 +391,55 @@ func comparePrereleases(v string, other string) int {
 	return 0
 }
 
+// bothBranches reports whether both versions are dev-branch versions, which
+// Composer treats as unordered: they only compare meaningfully for equality.
+func (v *Version) bothBranches(o *Version) bool {
+	return v.branch != "" && o.branch != ""
+}
+
 // Equal tests if two versions are equal.
 func (v *Version) Equal(o *Version) bool {
+	if v.bothBranches(o) {
+		return v.branch == o.branch
+	}
+
 	return v.Compare(o) == 0
 }
 
 // GreaterThan tests if this version is greater than another version.
 func (v *Version) GreaterThan(o *Version) bool {
+	if v.bothBranches(o) {
+		return false
+	}
+
 	return v.Compare(o) > 0
 }
 
 // GreaterThanOrEqual tests if this version is greater than or equal to another version.
 func (v *Version) GreaterThanOrEqual(o *Version) bool {
+	if v.bothBranches(o) {
+		return v.branch == o.branch
+	}
+
 	return v.Compare(o) >= 0
 }
 
 // LessThan tests if this version is less than another version.
 func (v *Version) LessThan(o *Version) bool {
+	if v.bothBranches(o) {
+		return false
+	}
+
 	return v.Compare(o) < 0
 }
 
 // LessThanOrEqual tests if this version is less than or equal to another version.
 func (v *Version) LessThanOrEqual(o *Version) bool {
-	return v.Compare(o) <= 0
-}
+	if v.bothBranches(o) {
+		return v.branch == o.branch
+	}
 
-// Metadata returns any metadata that was part of the version
-// string.
-//
-// Metadata is anything that comes after the "+" in the version.
-// For example, with "1.2.3+beta", the metadata is "beta".
-func (v *Version) Metadata() string {
-	return v.metadata
+	return v.Compare(o) <= 0
 }
 
 // Prerelease returns any prerelease data that is part of the version,
@@ -384,8 +523,9 @@ func (v *Version) String() string {
 	return v.original
 }
 
-// String returns the full version string included pre-release
-// and metadata information.
+// NormalizedString returns the canonicalized version string including any
+// pre-release information. Build metadata is not retained, matching Composer,
+// which discards everything after "+" during normalization.
 //
 // This value is rebuilt according to the parsed segments and other
 // information. Therefore, ambiguities in the version string such as
@@ -393,9 +533,17 @@ func (v *Version) String() string {
 // missing parts (1.0 => 1.0.0) will be made into a canonicalized form
 // as shown in the parenthesized examples.
 func (v *Version) NormalizedString() string {
+	if v.branch != "" {
+		return v.branch
+	}
+
 	var buf bytes.Buffer
-	fmtParts := make([]string, len(v.segments))
-	for i, s := range v.segments {
+	segments := v.segments
+	if v.si > 0 && v.si <= len(v.segments) {
+		segments = v.segments[:v.si]
+	}
+	fmtParts := make([]string, len(segments))
+	for i, s := range segments {
 		// We can ignore err here since we've pre-parsed the values in segments
 		str := strconv.FormatInt(s, 10)
 		fmtParts[i] = str
@@ -404,11 +552,17 @@ func (v *Version) NormalizedString() string {
 	if v.pre != "" {
 		fmt.Fprintf(&buf, "-%s", v.pre)
 	}
-	if v.metadata != "" {
-		fmt.Fprintf(&buf, "+%s", v.metadata)
-	}
 
-	return buf.String()
+	result := buf.String()
+	// Re-run the canonical normalizer so the output is a fixed point: a bare
+	// single-segment numeric form (e.g. parsed from "000000") would otherwise
+	// render as "0" yet re-parse to the padded "0.0.0.0", breaking idempotency.
+	// The normalizer is idempotent, so well-formed multi-segment results pass
+	// through unchanged.
+	if normalized, err := normalizeVersion(result); err == nil {
+		return normalized
+	}
+	return result
 }
 
 // Original returns the original parsed version as-is, including any

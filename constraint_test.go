@@ -87,6 +87,66 @@ func TestConstraints(t *testing.T) {
 	MustConstraints(NewConstraint(">=1.0.0,<2.0.0"))
 }
 
+func TestSemverSatisfiesFixtures(t *testing.T) {
+	// Selected fixtures adapted from external semver behavior.
+	tests := []struct {
+		version    string
+		constraint string
+		expected   bool
+	}{
+		{"1.2.3", "1.0.0 - 2.0.0", true},
+		{"1.2.3", "^1.2.3+build", true},
+		{"1.3.0", "^1.2.3+build", true},
+		{"2.4.3-alpha", "1.2.3+asdf - 2.4.3+asdf", true},
+		{"1.3.0-beta", ">1.2", true},
+		{"1.2.3-beta", "<=1.2.3", true},
+		{"1.2.3-beta", "^1.2.3", true},
+		{"1.0.0", ">= 1", true},
+		{"1.2.8", ">1.2", true},
+		{"1.1.1", "< 1.2", true},
+		{"1.2.3", "~1.2.1 >=1.2.3", true},
+		{"1.2.3", "~1.2.1 1.2.3", true},
+		{"1.8.1", "^1.2.3", true},
+		{"0.1.2", "^0.1.2", true},
+		{"0.1.2", "^0.1", true},
+		{"0.0.1-beta", "^0.0.1-alpha", true},
+		{"2.2.3", "1.0.0 - 2.0.0", false},
+		{"2.0.0", "^1.2.3+build", false},
+		{"1.2.0", "^1.2.3+build", false},
+		{"1.0.1", "1.0.0", false},
+		{"0.0.0", ">=1.0.0", false},
+		{"0.0.1", ">1.0.0", false},
+		{"3.0.0", "<=2.0.0", false},
+		{"2.2.9", "<2.0.0", false},
+		{"2.4.1", "2.3", false},
+		{"3.0.0", "~2.4", false},
+		{"2.3.9", "~2.4", false},
+		{"0.2.3", "~1", false},
+		{"2.0.0-alpha", "^1.2.3", false},
+		{"1.2.2", "^1.2.3", false},
+		{"1.1.9", "^1.2", false},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+
+		v, err := NewVersion(tc.version)
+		if err != nil {
+			t.Errorf("Failed to parse version %s: %v", tc.version, err)
+			continue
+		}
+
+		actual := c.Check(v)
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}
+
 func TestConstraintParsingWhitespaceAnd(t *testing.T) {
 	c, err := NewConstraint(">=1.0 <2.0")
 	if err != nil {
@@ -188,6 +248,11 @@ func TestPrereleaseConstraints(t *testing.T) {
 		{"<=1.0.0", "1.0.0-alpha", true},
 		{"^1.0.0", "1.1.0-alpha", true},
 		{"~1.0.0", "1.0.1-beta", true},
+		// A tilde constraint with a prerelease lower bound still matches the
+		// equal stable release, which sorts above the prerelease.
+		{"~1.2.2-dev", "1.2.2", true},
+		{"~1.2.3-alpha", "1.2.3", true},
+		{"~2.1.0-dev", "2.1.0", true},
 	}
 
 	for _, tc := range tests {
@@ -212,11 +277,15 @@ func TestCaretOperatorEdgeCases(t *testing.T) {
 		expected   bool
 	}{
 		{"^0.1.0", "0.1.0", true},
-		{"^0.1.0", "0.2.0", true},
+		{"^0.1.0", "0.1.99", true},
+		{"^0.1.0", "0.2.0", false},
+		{"^0.3", "0.3.99", true},
+		{"^0.3", "0.4.0", false},
 		{"^1.0.0", "2.0.0", false},
 		{"^1.0.0", "1.9.9", true},
 		{"^1.0.0-alpha", "1.0.0-beta", true},
-		{"^0.0.1", "0.0.2", true},
+		{"^0.0.1", "0.0.1", true},
+		{"^0.0.1", "0.0.2", false},
 		{"^0.0.1", "0.0.1-alpha", true},
 	}
 
@@ -277,6 +346,9 @@ func TestMalformedConstraints(t *testing.T) {
 		"!1.0.0",
 		"1.0.0-",
 		"~>1.a.0",
+		// Composer has no "~>" operator (that is rubygems syntax); it must be rejected.
+		"~>2.1.0",
+		"~> 2.1.0",
 		">=1.0.0-",
 		"^1.0.0-",
 		"~1.0.0-",
@@ -507,6 +579,14 @@ func TestWildcardWithOperators(t *testing.T) {
 		{"2.0.*", "2.0.0-alpha", true},
 		{"2.0.*", "2.0.5-beta", true},
 		{"2.0.*", "2.1.0-alpha", false},
+		{"2.x.x", "2.1.3", true},
+		{"2.x.x", "1.1.3", false},
+		{"1.2.x", "1.2.3", true},
+		{"1.2.x", "1.3.3", false},
+		{"x", "1.2.3", true},
+		{"2.*.*", "2.1.3", true},
+		{"2.*.*", "1.1.3", false},
+		{"*.*", "1.2.3", true},
 	}
 
 	for _, tc := range tests {
@@ -520,10 +600,8 @@ func TestWildcardWithOperators(t *testing.T) {
 
 func TestMalformedWildcardConstraints(t *testing.T) {
 	malformed := []string{
-		"2.*.*",
 		"*.0.0",
 		"2.*.0",
-		"*.*",
 		"2.*.5",
 		">=*",
 		">=*.0",
@@ -543,8 +621,13 @@ func TestHyphenatedVersionRange(t *testing.T) {
 		version    string
 		expected   bool
 	}{
+		{"1.0 - 2.0", "1.5.0", true},
+		{"1.0 - 2.0", "2.0.0", true},
+		{"1.0 - 2.0", "2.0.9", true},
+		{"1.0 - 2.0", "2.1.0", false},
 		{"1.0.0 - 2.0.0", "1.0.0-alpha", true},
 		{"1.0.0 - 2.0.0", "2.0.0-alpha", true},
+		{"1.0.0 - 2.0.0", "2.0.1", false},
 		{"1.0.0 - 2.0.0", "0.9.9", false},
 		{"1.0.0 - 2.0.0", "3.0.0", false},
 	}
@@ -570,7 +653,9 @@ func TestStabilityFlags(t *testing.T) {
 		version    string
 		expected   bool
 	}{
-		{">=1.0.0@stable", "1.0.0-rc1", false},
+		// Composer strips and discards the @stable flag, so these behave exactly
+		// like the flagless ">=1.0.0" and still accept same-version prereleases.
+		{">=1.0.0@stable", "1.0.0-rc1", true},
 		{">=1.0.0@stable", "1.0.0", true},
 		{">=1.0.0@stable", "1.1.0", true},
 		{">=1.0.0@dev", "1.0.0-rc1", true},
@@ -605,5 +690,70 @@ func TestStabilityFlags(t *testing.T) {
 func TestUnknownStability(t *testing.T) {
 	if _, err := NewConstraint(">=1.0.0@foo"); err == nil {
 		t.Errorf("expected error for unknown stability")
+	}
+}
+
+// TestStableFlagVsModifier pins down the difference between the "@stable" flag
+// (which Composer strips and discards) and an explicit "-stable" version
+// modifier (which Composer keeps). The flag must not raise the lower bound, so
+// it accepts same-version prereleases just like a flagless constraint; the
+// modifier must reject them.
+func TestStableFlagVsModifier(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		{">=1.0@stable", "1.0.0-beta", true},
+		{">=1.0@stable", "1.0.0-alpha", true},
+		{">=1.0@stable", "1.0.0", true},
+		{">=1.0", "1.0.0-beta", true},
+		{">=1.0-stable", "1.0.0-beta", false},
+		{">=1.0-stable", "1.0.0", true},
+		{"^1.0@stable", "1.0.0-beta", true},
+		{"~1.0@stable", "1.0.0-beta", true},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+		actual := c.Check(Must(NewVersion(tc.version)))
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
+	}
+}
+
+func TestDevBranchConstraints(t *testing.T) {
+	tests := []struct {
+		constraint string
+		version    string
+		expected   bool
+	}{
+		{"dev-master", "dev-master", true},
+		{"dev-master", "dev-main", false},
+		{"dev-feature-a", "dev-feature-a", true},
+		{"!=dev-feature-a", "dev-feature-b", true},
+		{"1.0.x-dev", "1.0.9999999.9999999-dev", true},
+	}
+
+	for _, tc := range tests {
+		c, err := NewConstraint(tc.constraint)
+		if err != nil {
+			t.Errorf("Failed to parse constraint %s: %v", tc.constraint, err)
+			continue
+		}
+		v, err := NewVersion(tc.version)
+		if err != nil {
+			t.Errorf("Failed to parse version %s: %v", tc.version, err)
+			continue
+		}
+		actual := c.Check(v)
+		if actual != tc.expected {
+			t.Errorf("Constraint %s with version %s: expected %v, got %v", tc.constraint, tc.version, tc.expected, actual)
+		}
 	}
 }

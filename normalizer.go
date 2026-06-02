@@ -6,20 +6,42 @@ import (
 	"strings"
 )
 
+// Static patterns used by version normalization. Compiling a regexp is far more
+// expensive than running it, so these are built once at package load instead of
+// on every normalizeVersion call (which runs for every NewVersion).
+var (
+	reAlias     = regexp.MustCompile(`^([^,\s]+)\s+as\s+([^,\s]+)$`)
+	reStability = regexp.MustCompile(`(?i)@(?:stable|beta|dev|alpha|RC)$`)
+	reBuild     = regexp.MustCompile(`^([^,\s+]+)\+[^\s]+$`)
+
+	modifierPattern = `(?:[._-]?(stable|beta|b|alpha|a|RC|patch|p|pl|dev)([._-]?\d+(?:[._-][0-9A-Za-z-]+)*)?(?:[._-]?(dev))?)?`
+	reClassical     = regexp.MustCompile("(?i)" + fmt.Sprintf(`^v?(\d{1,5})(\.\d+)?(\.\d+)?(\.\d+)?%s$`, modifierPattern))
+	reDate          = regexp.MustCompile("(?i)" + fmt.Sprintf(`^v?(\d{4}(?:[.:-]?\d{2}){1,6}(?:[.:-]?\d{1,3}){0,2})%s$`, modifierPattern))
+	reNonDigit      = regexp.MustCompile(`\D`)
+	reDevBranch     = regexp.MustCompile(`(?i)(.*?)[.-]?dev$`)
+
+	reDevSuffixWildcard = regexp.MustCompile(`(?i)^v?\d+(?:\.(?:\d+|x|\*)){0,3}$`)
+	reNumericBranch     = regexp.MustCompile(`(?i)^v?(\d+)(\.(\d+|[xX*]))?(\.(\d+|[xX*]))?(\.(\d+|[xX*]))?$`)
+)
+
 func normalizeVersion(version string) (string, error) {
+	return normalizeVersionWithContext(version, version)
+}
+
+func normalizeVersionWithContext(version, fullVersion string) (string, error) {
 	version = strings.TrimSpace(version)
-	origVersion := version
+	invalidVersion := version
+	fullVersion = strings.TrimSpace(fullVersion)
+	if fullVersion == "" {
+		fullVersion = invalidVersion
+	}
 
 	// Strip off aliasing e.g. "1.2.3 as 1.2.3-alias"
-	aliasPattern := `^([^,\s]+)\s+as\s+([^,\s]+)$`
-	reAlias := regexp.MustCompile(aliasPattern)
 	if match := reAlias.FindStringSubmatch(version); match != nil {
 		version = match[1]
 	}
 
 	// Strip off stability flag e.g. "1.2.3@beta"
-	stabilityPattern := fmt.Sprintf("@(?:%s)$", `stable|beta|dev|alpha|RC`)
-	reStability := regexp.MustCompile("(?i)" + stabilityPattern)
 	if match := reStability.FindStringSubmatch(version); match != nil {
 		version = version[:len(version)-len(match[0])]
 	}
@@ -36,8 +58,6 @@ func normalizeVersion(version string) (string, error) {
 	}
 
 	// Strip off build metadata: e.g. "1.2.3+buildinfo"
-	buildPattern := `^([^,\s+]+)\+[^\s]+$`
-	reBuild := regexp.MustCompile(buildPattern)
 	if match := reBuild.FindStringSubmatch(version); match != nil {
 		version = match[1]
 	}
@@ -46,8 +66,6 @@ func normalizeVersion(version string) (string, error) {
 	modifierIndex := 0 // will indicate where modifiers are found in the matches
 
 	// Match classical versioning like 1.2.3.4 with optional modifiers.
-	classicalPattern := fmt.Sprintf(`^v?(\d{1,5})(\.\d+)?(\.\d+)?(\.\d+)?%s$`, `(?:-?(stable|beta|b|alpha|a|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
-	reClassical := regexp.MustCompile("(?i)" + classicalPattern)
 	if matches = reClassical.FindStringSubmatch(version); matches != nil {
 		major := matches[1]
 		minor := ".0"
@@ -67,11 +85,9 @@ func normalizeVersion(version string) (string, error) {
 		modifierIndex = 5
 	} else {
 		// Match date(time) based versioning such as 2020.01.01 with optional modifiers.
-		datePattern := fmt.Sprintf(`^v?(\d{4}(?:[.:-]?\d{2}){1,6}(?:[.:-]?\d{1,3}){0,2})%s$`, `(?:-(stable|beta|b|alpha|a|RC)(?:[.-]?(\d+))?(?:[.-]?(dev))?)?`)
-		reDate := regexp.MustCompile("(?i)" + datePattern)
 		if matches = reDate.FindStringSubmatch(version); matches != nil {
 			// Replace any non-digit character with a dot.
-			version = regexp.MustCompile(`\D`).ReplaceAllString(matches[1], ".")
+			version = reNonDigit.ReplaceAllString(matches[1], ".")
 			// Modifier (if any) is expected at index 2.
 			modifierIndex = 2
 		}
@@ -90,7 +106,7 @@ func normalizeVersion(version string) (string, error) {
 			extra := ""
 			if len(matches) > modifierIndex+1 && matches[modifierIndex+1] != "" {
 				// Remove any leading dots or hyphens.
-				extra = strings.TrimLeft(matches[modifierIndex+1], ".-")
+				extra = strings.TrimLeft(matches[modifierIndex+1], "._-")
 			}
 			version += extra
 		}
@@ -103,38 +119,50 @@ func normalizeVersion(version string) (string, error) {
 	}
 
 	// Match dev branches such as "feature-dev" or "feature.dev"
-	devBranchPattern := `(?i)(.*?)[.-]?dev$`
-	reDevBranch := regexp.MustCompile(devBranchPattern)
 	if match := reDevBranch.FindStringSubmatch(version); match != nil {
-		normalized := normalizeBranch(match[1])
-		// A branch ending with "-dev" is only valid if it does not already contain a "dev-" prefix.
-		if !strings.Contains(normalized, "dev-") {
-			return normalized, nil
+		base := match[1]
+		// Suffix-style arbitrary branches are accepted, but Composer only
+		// applies this conversion to simple strings.
+		if canConvertDevSuffix(base) {
+			return normalizeBranch(base), nil
 		}
 	}
 
 	// If no match was found, prepare an appropriate error message.
+	// These patterns embed the (untrusted) version string, so they are compiled
+	// defensively: invalid input (e.g. non-UTF-8 bytes) only costs the richer
+	// error message rather than panicking via MustCompile.
 	extraMessage := ""
 	// Check if the alias in fullVersion must be an exact version.
-	aliasExactPattern := fmt.Sprintf(` +as +%s(?:@(?:%s))?$`, regexp.QuoteMeta(version), `stable|beta|alpha|RC`)
-	reAliasExact := regexp.MustCompile(aliasExactPattern)
-	if reAliasExact.MatchString(origVersion) {
-		extraMessage = fmt.Sprintf(` in "%s", the alias must be an exact version`, origVersion)
+	aliasExactPattern := fmt.Sprintf(` +as +%s(?:@(?:%s))?$`, regexp.QuoteMeta(version), `stable|beta|dev|alpha|RC`)
+	if reAliasExact, err := regexp.Compile(aliasExactPattern); err == nil && reAliasExact.MatchString(fullVersion) {
+		extraMessage = fmt.Sprintf(` in "%s", the alias must be an exact version`, fullVersion)
 	} else {
-		aliasSourcePattern := fmt.Sprintf(`^%s(?:@(?:%s))? +as +`, regexp.QuoteMeta(version), `stable|beta|alpha|RC`)
-		reAliasSource := regexp.MustCompile(aliasSourcePattern)
-		if reAliasSource.MatchString(origVersion) {
-			extraMessage = fmt.Sprintf(` in "%s", the alias source must be an exact version, if it is a branch name you should prefix it with dev-`, origVersion)
+		aliasSourcePattern := fmt.Sprintf(`^%s(?:@(?:%s))? +as +`, regexp.QuoteMeta(version), `stable|beta|dev|alpha|RC`)
+		if reAliasSource, err := regexp.Compile(aliasSourcePattern); err == nil && reAliasSource.MatchString(fullVersion) {
+			extraMessage = fmt.Sprintf(` in "%s", the alias source must be an exact version, if it is a branch name you should prefix it with dev-`, fullVersion)
 		}
 	}
 
-	return "", fmt.Errorf(`invalid version string "%s"%s`, origVersion, extraMessage)
+	return "", fmt.Errorf(`invalid version string "%s"%s`, invalidVersion, extraMessage)
+}
+
+func canConvertDevSuffix(base string) bool {
+	if strings.ContainsAny(base, " <>!=") || strings.Contains(strings.ToLower(base), "dev-") {
+		return false
+	}
+	if strings.Contains(base, "*") {
+		if base == "*" {
+			return false
+		}
+		return reDevSuffixWildcard.MatchString(base)
+	}
+	return true
 }
 
 func normalizeBranch(name string) string {
 	name = strings.TrimSpace(name)
-	re := regexp.MustCompile(`(?i)^v?(\d+)(\.(\d+|[xX*]))?(\.(\d+|[xX*]))?(\.(\d+|[xX*]))?$`)
-	if m := re.FindStringSubmatch(name); m != nil {
+	if m := reNumericBranch.FindStringSubmatch(name); m != nil {
 		seg1 := m[1]
 		seg2 := m[3]
 		seg3 := m[5]
@@ -158,6 +186,47 @@ func normalizeBranch(name string) string {
 	return "dev-" + name
 }
 
+func parseNumericAliasPrefix(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if !strings.HasSuffix(strings.ToLower(input), "-dev") {
+		return "", false
+	}
+
+	base := input[:len(input)-4]
+	if len(base) > 1 && (base[0] == 'v' || base[0] == 'V') {
+		base = base[1:]
+	}
+	if base == "" {
+		return "", false
+	}
+
+	parts := strings.Split(base, ".")
+	if len(parts) > 3 {
+		return "", false
+	}
+
+	prefix := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			return "", false
+		}
+		if part == "*" || strings.EqualFold(part, "x") {
+			break
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return "", false
+			}
+		}
+		prefix = append(prefix, part)
+	}
+
+	if len(prefix) == 0 {
+		return "", false
+	}
+	return strings.Join(prefix, ".") + ".", true
+}
+
 func expandStability(stability string) string {
 	s := strings.ToLower(stability)
 	switch s {
@@ -168,8 +237,12 @@ func expandStability(stability string) string {
 	case "p", "pl":
 		return "patch"
 	case "rc":
-		return "rc"
+		return "RC"
 	default:
 		return s
 	}
+}
+
+func normalizeStability(stability string) string {
+	return expandStability(stability)
 }
